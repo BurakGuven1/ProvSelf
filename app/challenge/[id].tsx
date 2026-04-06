@@ -134,11 +134,11 @@ export default function ChallengeDetailScreen() {
           </View>
         </Card>
 
-        {/* Stake */}
+        {/* Credits */}
         <Card style={styles.stakeCard}>
           <View style={styles.stakeRow}>
             <View>
-              <Text style={styles.stakeLabel}>At stake</Text>
+              <Text style={styles.stakeLabel}>Credits committed</Text>
               <StakeAmount cents={challenge.stake_cents} size="lg" />
             </View>
             <View style={styles.stakeStatus}>

@@ -1,13 +1,25 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Platform, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, typography, spacing } from '@/src/constants/theme';
+import { useAuthStore } from '@/src/stores/auth-store';
 import Button from '@/src/components/Button';
 
 export default function WelcomeScreen() {
   const router = useRouter();
   const { t } = useTranslation();
+  const { signInWithApple, loading } = useAuthStore();
+
+  const handleAppleSignIn = async () => {
+    try {
+      await signInWithApple();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Apple Sign In failed';
+      Alert.alert(t('common.error'), message);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -19,6 +31,26 @@ export default function WelcomeScreen() {
         </View>
 
         <View style={styles.actions}>
+          {Platform.OS === 'ios' && (
+            <>
+              <Button
+                title={t('auth.continue_with_apple')}
+                onPress={handleAppleSignIn}
+                loading={loading}
+                variant="secondary"
+                size="lg"
+                fullWidth
+                icon={<Ionicons name="logo-apple" size={20} color={colors.white} />}
+              />
+              <View style={styles.spacer} />
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>{t('auth.or')}</Text>
+                <View style={styles.dividerLine} />
+              </View>
+              <View style={styles.spacer} />
+            </>
+          )}
           <Button
             title={t('auth.sign_in')}
             onPress={() => router.push('/(auth)/login')}
@@ -81,5 +113,19 @@ const styles = StyleSheet.create({
   },
   spacer: {
     height: spacing.md,
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dividerLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.textTertiary,
+  },
+  dividerText: {
+    ...typography.footnote,
+    color: colors.textTertiary,
+    paddingHorizontal: spacing.md,
   },
 });

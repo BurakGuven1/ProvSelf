@@ -5,14 +5,22 @@ import { ActivityIndicator, View, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { supabase } from '@/src/lib/supabase';
 import { useAuthStore } from '@/src/stores/auth-store';
+import { configureRevenueCat, loginRevenueCat, logoutRevenueCat } from '@/src/lib/revenue-cat';
+import { useSubscriptionStore } from '@/src/stores/subscription-store';
 import '@/src/lib/i18n';
 import { colors } from '@/src/constants/theme';
 
 export default function RootLayout() {
   const [isReady, setIsReady] = useState(false);
   const { session, setSession, fetchProfile } = useAuthStore();
+  const { checkSubscription, reset: resetSubscription } = useSubscriptionStore();
   const segments = useSegments();
   const router = useRouter();
+
+  // Initialize RevenueCat SDK once
+  useEffect(() => {
+    configureRevenueCat();
+  }, []);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -20,15 +28,23 @@ export default function RootLayout() {
         setSession(newSession);
         if (newSession) {
           await fetchProfile();
+          // Sync RevenueCat user identity
+          await loginRevenueCat(newSession.user.id);
+          await checkSubscription();
+        } else {
+          await logoutRevenueCat();
+          resetSubscription();
         }
         setIsReady(true);
       }
     );
 
-    supabase.auth.getSession().then(({ data: { session: existingSession } }) => {
+    supabase.auth.getSession().then(async ({ data: { session: existingSession } }) => {
       setSession(existingSession);
       if (existingSession) {
-        fetchProfile();
+        await fetchProfile();
+        await loginRevenueCat(existingSession.user.id);
+        await checkSubscription();
       }
       setIsReady(true);
     });

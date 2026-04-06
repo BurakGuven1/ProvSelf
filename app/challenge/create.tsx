@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -20,10 +20,48 @@ import { useStakeStore } from '@/src/stores/stake-store';
 import Button from '@/src/components/Button';
 import Card from '@/src/components/Card';
 import StakeAmount from '@/src/components/StakeAmount';
-import type { ChallengeCategory, VerificationType } from '@/src/types/database';
+import type { ChallengeCategory, ChallengeDifficulty, VerificationType } from '@/src/types/database';
 
-const DURATION_OPTIONS = [7, 14, 30, 60, 90];
-const STAKE_OPTIONS = [500, 1000, 2000, 5000]; // cents
+// ── Duration options ──
+const DURATION_OPTIONS = [
+  { days: 7, label: '1 Week' },
+  { days: 14, label: '2 Weeks' },
+  { days: 30, label: '1 Month' },
+  { days: 90, label: '3 Months' },
+  { days: 180, label: '6 Months' },
+  { days: 365, label: '1 Year' },
+];
+
+// ── Difficulty options ──
+const DIFFICULTY_OPTIONS: { key: ChallengeDifficulty; icon: keyof typeof Ionicons.glyphMap; color: string }[] = [
+  { key: 'easy', icon: 'leaf', color: colors.success },
+  { key: 'medium', icon: 'flame', color: colors.warning },
+  { key: 'hard', icon: 'skull', color: colors.danger },
+];
+
+// ── Stake calculation: duration x difficulty ──
+// Base tokens for each duration (easy difficulty)
+const BASE_STAKE: Record<number, number> = {
+  7: 100,
+  14: 200,
+  30: 500,
+  90: 1500,
+  180: 3000,
+  365: 5000,
+};
+
+// Difficulty multiplier
+const DIFFICULTY_MULTIPLIER: Record<ChallengeDifficulty, number> = {
+  easy: 1,
+  medium: 2,
+  hard: 4,
+};
+
+function calculateStake(durationDays: number, difficulty: ChallengeDifficulty): number {
+  const base = BASE_STAKE[durationDays] ?? 100;
+  return base * DIFFICULTY_MULTIPLIER[difficulty];
+}
+
 const CATEGORIES: { key: ChallengeCategory; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: 'fitness', icon: 'barbell' },
   { key: 'health', icon: 'heart' },
@@ -41,10 +79,12 @@ export default function CreateChallengeScreen() {
     templateMetric?: string;
     templateTarget?: string;
     templateDescription?: string;
+    templateDifficulty?: string;
+    templateDuration?: string;
   }>();
 
   const { createChallenge, loading } = useChallengeStore();
-  const { balance } = useStakeStore();
+  const { balance, deductStake, returnStake } = useStakeStore();
 
   const [step, setStep] = useState(0);
   const [title, setTitle] = useState(params.templateTitle || '');
@@ -52,15 +92,27 @@ export default function CreateChallengeScreen() {
   const [category, setCategory] = useState<ChallengeCategory>(
     (params.templateCategory as ChallengeCategory) || 'fitness'
   );
-  const [duration, setDuration] = useState(30);
-  const [stakeCents, setStakeCents] = useState(1000);
+  const [duration, setDuration] = useState(
+    params.templateDuration ? parseInt(params.templateDuration, 10) : 30
+  );
+  const [difficulty, setDifficulty] = useState<ChallengeDifficulty>(
+    (params.templateDifficulty as ChallengeDifficulty) || 'easy'
+  );
   const [verificationType, setVerificationType] = useState<VerificationType>(
     params.templateMetric ? 'healthkit' : 'photo_ai'
   );
   const [healthMetric, setHealthMetric] = useState(params.templateMetric || 'steps');
   const [healthTarget, setHealthTarget] = useState(params.templateTarget || '10000');
 
-  const totalSteps = 4;
+  const totalSteps = 5; // +1 for difficulty step
+
+  const stakeCents = useMemo(
+    () => calculateStake(duration, difficulty),
+    [duration, difficulty]
+  );
+
+  const currentBalance = balance?.balance_cents ?? 0;
+  const insufficientBalance = currentBalance < stakeCents;
 
   const handleCreate = async () => {
     if (!title.trim()) {
@@ -68,8 +120,7 @@ export default function CreateChallengeScreen() {
       return;
     }
 
-    const currentBalance = balance?.balance_cents ?? 0;
-    if (currentBalance < stakeCents) {
+    if (insufficientBalance) {
       Alert.alert(t('stake.insufficient_balance'), '', [
         { text: t('common.cancel'), style: 'cancel' },
         { text: t('stake.add_funds'), onPress: () => router.push('/stake/purchase') },
@@ -78,28 +129,35 @@ export default function CreateChallengeScreen() {
     }
 
     const startDate = new Date();
-    const endDate = addDays(startDate, duration);
+    const endDate = addDays(startDate, Math.max(duration - 1, 0));
 
     try {
-      await createChallenge({
-        title: title.trim(),
-        description: description.trim() || null,
-        category,
-        frequency: 'daily',
-        duration_days: duration,
-        required_completions: duration,
-        start_date: format(startDate, 'yyyy-MM-dd'),
-        end_date: format(endDate, 'yyyy-MM-dd'),
-        stake_cents: stakeCents,
-        verification_type: verificationType,
-        verification_config:
-          verificationType === 'healthkit'
-            ? { metric: healthMetric, target: parseInt(healthTarget, 10) || 0 }
-            : { description: title.trim() },
-        status: 'active',
-        completed_days: 0,
-        failed_days: 0,
-      });
+      await deductStake(stakeCents);
+
+      try {
+        await createChallenge({
+          title: title.trim(),
+          description: description.trim() || null,
+          category,
+          frequency: 'daily',
+          duration_days: duration,
+          required_completions: duration,
+          start_date: format(startDate, 'yyyy-MM-dd'),
+          end_date: format(endDate, 'yyyy-MM-dd'),
+          stake_cents: stakeCents,
+          verification_type: verificationType,
+          verification_config:
+            verificationType === 'healthkit'
+              ? { metric: healthMetric, target: parseInt(healthTarget, 10) || 0 }
+              : { description: title.trim() },
+          status: 'active',
+          completed_days: 0,
+          failed_days: 0,
+        });
+      } catch (createErr) {
+        await returnStake(stakeCents);
+        throw createErr;
+      }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace('/(tabs)');
@@ -125,6 +183,7 @@ export default function CreateChallengeScreen() {
     }
   };
 
+  // ── Step 0: What habit ──
   const renderStep0 = () => (
     <View style={styles.stepContent}>
       <Text style={styles.stepTitle}>{t('challenge.what_habit')}</Text>
@@ -176,31 +235,32 @@ export default function CreateChallengeScreen() {
     </View>
   );
 
+  // ── Step 1: Duration ──
   const renderStep1 = () => (
     <View style={styles.stepContent}>
       <Text style={styles.stepTitle}>{t('challenge.how_long')}</Text>
       <View style={styles.durationGrid}>
         {DURATION_OPTIONS.map((d) => (
           <TouchableOpacity
-            key={d}
-            style={[styles.durationOption, duration === d && styles.optionSelected]}
-            onPress={() => setDuration(d)}
+            key={d.days}
+            style={[styles.durationOption, duration === d.days && styles.optionSelected]}
+            onPress={() => setDuration(d.days)}
           >
             <Text
               style={[
                 styles.durationValue,
-                duration === d && styles.optionLabelSelected,
+                duration === d.days && styles.optionLabelSelected,
               ]}
             >
-              {d}
+              {d.days}
             </Text>
             <Text
               style={[
                 styles.durationLabel,
-                duration === d && styles.optionLabelSelected,
+                duration === d.days && styles.optionLabelSelected,
               ]}
             >
-              days
+              {d.label}
             </Text>
           </TouchableOpacity>
         ))}
@@ -208,7 +268,60 @@ export default function CreateChallengeScreen() {
     </View>
   );
 
+  // ── Step 2: Difficulty ──
   const renderStep2 = () => (
+    <View style={styles.stepContent}>
+      <Text style={styles.stepTitle}>How difficult is this?</Text>
+      <Text style={styles.stakeExplanation}>
+        Harder challenges require more commitment credits. The harder you push yourself, the more you prove.
+      </Text>
+      <View style={styles.difficultyGrid}>
+        {DIFFICULTY_OPTIONS.map((d) => {
+          const stakeForThis = calculateStake(duration, d.key);
+          const isSelected = difficulty === d.key;
+          return (
+            <TouchableOpacity
+              key={d.key}
+              style={[
+                styles.difficultyCard,
+                isSelected && { borderColor: d.color, backgroundColor: `${d.color}10` },
+              ]}
+              onPress={() => {
+                setDifficulty(d.key);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              }}
+            >
+              <View style={[styles.difficultyIconWrap, { backgroundColor: `${d.color}20` }]}>
+                <Ionicons name={d.icon} size={28} color={d.color} />
+              </View>
+              <Text style={[styles.difficultyLabel, isSelected && { color: d.color }]}>
+                {d.key.charAt(0).toUpperCase() + d.key.slice(1)}
+              </Text>
+              <View style={styles.difficultyStakeRow}>
+                <Ionicons name="wallet" size={14} color={colors.stakeGoldDark} />
+                <Text style={styles.difficultyStake}>{stakeForThis}</Text>
+              </View>
+              <Text style={styles.difficultyStakeLabel}>tokens</Text>
+              {isSelected && (
+                <View style={[styles.difficultyCheck, { backgroundColor: d.color }]}>
+                  <Ionicons name="checkmark" size={14} color={colors.white} />
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      <View style={styles.stakePreview}>
+        <Text style={styles.stakePreviewText}>
+          {duration} days x {difficulty} = <Text style={{ fontWeight: '700', color: colors.stakeGoldDark }}>{stakeCents} tokens</Text>
+        </Text>
+      </View>
+    </View>
+  );
+
+  // ── Step 3: Verification ──
+  const renderStep3 = () => (
     <View style={styles.stepContent}>
       <Text style={styles.stepTitle}>{t('challenge.verification_method')}</Text>
       <Card
@@ -289,39 +402,75 @@ export default function CreateChallengeScreen() {
     </View>
   );
 
-  const renderStep3 = () => (
+  // ── Step 4: Summary ──
+  const renderStep4 = () => (
     <View style={styles.stepContent}>
       <Text style={styles.stepTitle}>{t('challenge.how_much_stake')}</Text>
       <Text style={styles.stakeExplanation}>{t('challenge.stake_explanation')}</Text>
 
-      <View style={styles.stakeGrid}>
-        {STAKE_OPTIONS.map((s) => (
+      <View style={styles.balanceIndicator}>
+        <Ionicons name="wallet" size={18} color={colors.stakeGoldDark} />
+        <Text style={styles.balanceText}>
+          Your balance: <Text style={styles.balanceBold}>{currentBalance} tokens</Text>
+        </Text>
+        {insufficientBalance && (
           <TouchableOpacity
-            key={s}
-            style={[styles.stakeOption, stakeCents === s && styles.stakeOptionSelected]}
-            onPress={() => setStakeCents(s)}
+            onPress={() => router.push('/stake/purchase')}
+            style={styles.addFundsBtn}
           >
-            <Text
-              style={[
-                styles.stakeValue,
-                stakeCents === s && styles.stakeValueSelected,
-              ]}
-            >
-              ${(s / 100).toFixed(0)}
-            </Text>
+            <Text style={styles.addFundsText}>+ Add</Text>
           </TouchableOpacity>
-        ))}
+        )}
+      </View>
+
+      {/* Stake display */}
+      <View style={styles.stakeDisplay}>
+        <Ionicons name="wallet" size={32} color={colors.stakeGoldDark} />
+        <Text style={styles.stakeDisplayValue}>{stakeCents}</Text>
+        <Text style={styles.stakeDisplayLabel}>tokens at stake</Text>
+        <View style={styles.stakeBreakdown}>
+          <Text style={styles.stakeBreakdownText}>
+            {DURATION_OPTIONS.find((d) => d.days === duration)?.label ?? `${duration} days`} x {difficulty.charAt(0).toUpperCase() + difficulty.slice(1)} difficulty
+          </Text>
+        </View>
+      </View>
+
+      {/* Risk/reward */}
+      <View style={styles.riskCard}>
+        <View style={styles.riskRow}>
+          <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+          <Text style={styles.riskText}>
+            Complete it: <Text style={{ fontWeight: '700' }}>{stakeCents} tokens returned</Text>
+          </Text>
+        </View>
+        <View style={styles.riskRow}>
+          <Ionicons name="close-circle" size={18} color={colors.danger} />
+          <Text style={styles.riskText}>
+            Give up: <Text style={{ fontWeight: '700' }}>{stakeCents} tokens forfeited</Text>
+          </Text>
+        </View>
       </View>
 
       <Card style={styles.summaryCard}>
         <Text style={styles.summaryTitle}>Challenge Summary</Text>
         <View style={styles.summaryRow}>
           <Text style={styles.summaryLabel}>Challenge</Text>
-          <Text style={styles.summaryValue}>{title}</Text>
+          <Text style={styles.summaryValue} numberOfLines={1}>{title}</Text>
         </View>
         <View style={styles.summaryRow}>
           <Text style={styles.summaryLabel}>Duration</Text>
-          <Text style={styles.summaryValue}>{duration} days</Text>
+          <Text style={styles.summaryValue}>
+            {DURATION_OPTIONS.find((d) => d.days === duration)?.label ?? `${duration} days`}
+          </Text>
+        </View>
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>Difficulty</Text>
+          <Text style={[
+            styles.summaryValue,
+            { color: DIFFICULTY_OPTIONS.find((d) => d.key === difficulty)?.color },
+          ]}>
+            {difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}
+          </Text>
         </View>
         <View style={styles.summaryRow}>
           <Text style={styles.summaryLabel}>Verification</Text>
@@ -329,15 +478,15 @@ export default function CreateChallengeScreen() {
             {verificationType === 'healthkit' ? 'Apple Health' : 'Photo AI'}
           </Text>
         </View>
-        <View style={styles.summaryRow}>
-          <Text style={styles.summaryLabel}>Stake</Text>
+        <View style={[styles.summaryRow, { borderBottomWidth: 0 }]}>
+          <Text style={styles.summaryLabel}>At Stake</Text>
           <StakeAmount cents={stakeCents} size="md" />
         </View>
       </Card>
     </View>
   );
 
-  const steps = [renderStep0, renderStep1, renderStep2, renderStep3];
+  const steps = [renderStep0, renderStep1, renderStep2, renderStep3, renderStep4];
 
   return (
     <SafeAreaView style={styles.container}>
@@ -475,11 +624,12 @@ const styles = StyleSheet.create({
   },
   durationGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     gap: spacing.sm,
   },
   durationOption: {
-    flex: 1,
+    width: '31%',
     alignItems: 'center',
     paddingVertical: spacing.lg,
     borderRadius: borderRadius.lg,
@@ -493,7 +643,73 @@ const styles = StyleSheet.create({
     ...typography.caption1,
     color: colors.textSecondary,
     marginTop: spacing.xs,
+    textAlign: 'center',
   },
+  // ── Difficulty styles ──
+  difficultyGrid: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  difficultyCard: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.sm,
+    borderRadius: borderRadius.lg,
+    backgroundColor: colors.backgroundSecondary,
+    borderWidth: 2,
+    borderColor: colors.transparent,
+  },
+  difficultyIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  difficultyLabel: {
+    ...typography.headline,
+    color: colors.textPrimary,
+    marginBottom: spacing.sm,
+  },
+  difficultyStakeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  difficultyStake: {
+    ...typography.title3,
+    fontWeight: '700',
+    color: colors.stakeGoldDark,
+  },
+  difficultyStakeLabel: {
+    ...typography.caption2,
+    color: colors.textTertiary,
+  },
+  difficultyCheck: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  stakePreview: {
+    backgroundColor: '#FFFDE7',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+  },
+  stakePreviewText: {
+    ...typography.subhead,
+    color: colors.textSecondary,
+  },
+  // ── Verification styles ──
   verifyCard: {
     marginBottom: spacing.md,
     borderWidth: 2,
@@ -548,37 +764,89 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     textAlign: 'center',
   },
+  // ── Summary step styles ──
   stakeExplanation: {
     ...typography.subhead,
     color: colors.textSecondary,
-    marginBottom: spacing.xl,
+    marginBottom: spacing.lg,
     lineHeight: 22,
   },
-  stakeGrid: {
+  balanceIndicator: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-    marginBottom: spacing.xl,
-  },
-  stakeOption: {
-    flex: 1,
     alignItems: 'center',
-    paddingVertical: spacing.lg,
-    borderRadius: borderRadius.lg,
-    backgroundColor: colors.backgroundSecondary,
-    borderWidth: 2,
-    borderColor: colors.transparent,
-  },
-  stakeOptionSelected: {
-    borderColor: colors.stakeGold,
     backgroundColor: '#FFFDE7',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    borderRadius: borderRadius.md,
+    marginBottom: spacing.lg,
+    gap: spacing.sm,
   },
-  stakeValue: {
-    ...typography.title1,
-    color: colors.textPrimary,
+  balanceText: {
+    ...typography.subhead,
+    color: colors.textSecondary,
+    flex: 1,
   },
-  stakeValueSelected: {
+  balanceBold: {
+    fontWeight: '700',
     color: colors.stakeGoldDark,
+  },
+  addFundsBtn: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    borderRadius: borderRadius.full,
+  },
+  addFundsText: {
+    ...typography.caption1,
+    fontWeight: '700',
+    color: colors.white,
+  },
+  stakeDisplay: {
+    alignItems: 'center',
+    paddingVertical: spacing.xl,
+    marginBottom: spacing.lg,
+    backgroundColor: '#FFFDE7',
+    borderRadius: borderRadius.lg,
+    borderWidth: 2,
+    borderColor: colors.stakeGold,
+  },
+  stakeDisplayValue: {
+    ...typography.largeTitle,
+    color: colors.stakeGoldDark,
+    marginTop: spacing.sm,
+  },
+  stakeDisplayLabel: {
+    ...typography.subhead,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+  },
+  stakeBreakdown: {
+    marginTop: spacing.sm,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.full,
+  },
+  stakeBreakdownText: {
+    ...typography.caption1,
+    color: colors.textSecondary,
+    fontWeight: '600',
+  },
+  riskCard: {
+    backgroundColor: colors.backgroundSecondary,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+    gap: spacing.sm,
+  },
+  riskRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  riskText: {
+    ...typography.subhead,
+    color: colors.textPrimary,
   },
   summaryCard: {
     backgroundColor: colors.backgroundSecondary,

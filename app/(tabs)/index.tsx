@@ -10,7 +10,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
-import { format, differenceInDays } from 'date-fns';
+import { useFocusEffect } from '@react-navigation/native';
+import { differenceInDays } from 'date-fns';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, typography, spacing, borderRadius } from '@/src/constants/theme';
 import { useAuthStore } from '@/src/stores/auth-store';
@@ -89,6 +90,13 @@ export default function HomeScreen() {
     fetchChallenges();
     fetchMessages();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchChallenges();
+      fetchMessages();
+    }, [fetchChallenges, fetchMessages]),
+  );
 
   const renderHeader = () => (
     <View style={styles.headerSection}>

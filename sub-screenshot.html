@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Subscription Screenshot - Provself Pro</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 1320px;
+    height: 2868px;
+    background: #FFFFFF;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif;
+    overflow: hidden;
+  }
+
+  .screen {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 120px 72px 100px;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 48px;
+    margin-top: 20px;
+  }
+  .back-arrow {
+    font-size: 52px;
+    color: #000;
+    margin-right: 24px;
+  }
+  .header-title {
+    font-size: 68px;
+    font-weight: 700;
+    color: #000;
+  }
+
+  /* Pro badge area */
+  .pro-hero {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 72px 0 56px;
+    margin-bottom: 48px;
+  }
+  .pro-icon {
+    width: 160px;
+    height: 160px;
+    background: linear-gradient(135deg, #FFD60A 0%, #FF9500 100%);
+    border-radius: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 80px;
+    margin-bottom: 36px;
+    box-shadow: 0 8px 32px rgba(255,149,0,0.3);
+  }
+  .pro-title {
+    font-size: 56px;
+    font-weight: 700;
+    color: #000;
+    margin-bottom: 16px;
+  }
+  .pro-subtitle {
+    font-size: 34px;
+    color: #8E8E93;
+    text-align: center;
+    line-height: 1.4;
+  }
+
+  /* Features */
+  .features {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+    margin-bottom: 64px;
+    padding: 0 12px;
+  }
+  .feature-row {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
+  .feature-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 30px;
+    flex-shrink: 0;
+  }
+  .feature-text {
+    font-size: 34px;
+    color: #000;
+    font-weight: 500;
+  }
+
+  /* Plan cards */
+  .plans {
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+    margin-bottom: 56px;
+  }
+
+  .plan-card {
+    border: 4px solid #E5E5EA;
+    border-radius: 28px;
+    padding: 44px 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: relative;
+    background: #fff;
+  }
+  .plan-card.selected {
+    border-color: #FF9500;
+    background: linear-gradient(135deg, #FFFDE7 0%, #FFF3E0 100%);
+    box-shadow: 0 4px 24px rgba(255,149,0,0.15);
+  }
+
+  .plan-left {
+    display: flex;
+    flex-direction: column;
+  }
+  .plan-label {
+    font-size: 38px;
+    font-weight: 700;
+    color: #000;
+    margin-bottom: 8px;
+  }
+  .plan-detail {
+    font-size: 28px;
+    color: #8E8E93;
+  }
+
+  .plan-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+  }
+  .plan-price {
+    font-size: 48px;
+    font-weight: 700;
+    color: #000;
+  }
+  .plan-period {
+    font-size: 28px;
+    color: #8E8E93;
+  }
+
+  .plan-badge {
+    position: absolute;
+    top: -20px;
+    left: 48px;
+    background: linear-gradient(135deg, #FF9500, #FF6B00);
+    color: #fff;
+    font-size: 24px;
+    font-weight: 800;
+    padding: 8px 28px;
+    border-radius: 20px;
+    letter-spacing: 1.5px;
+    box-shadow: 0 4px 12px rgba(255,107,0,0.3);
+  }
+
+  .save-badge {
+    position: absolute;
+    top: -20px;
+    right: 48px;
+    background: #34C759;
+    color: #fff;
+    font-size: 24px;
+    font-weight: 800;
+    padding: 8px 28px;
+    border-radius: 20px;
+    letter-spacing: 1px;
+  }
+
+  .radio-outer {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: 4px solid #E5E5EA;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 28px;
+    flex-shrink: 0;
+  }
+  .plan-card.selected .radio-outer {
+    border-color: #FF9500;
+  }
+  .radio-inner {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: transparent;
+  }
+  .plan-card.selected .radio-inner {
+    background: #FF9500;
+  }
+
+  .plan-row {
+    display: flex;
+    align-items: center;
+    flex: 1;
+  }
+
+  /* Spacer */
+  .spacer { flex: 1; }
+
+  /* Subscribe button */
+  .subscribe-btn {
+    background: linear-gradient(135deg, #FF9500, #FF6B00);
+    color: #fff;
+    border: none;
+    border-radius: 24px;
+    padding: 40px;
+    font-size: 40px;
+    font-weight: 700;
+    text-align: center;
+    width: 100%;
+    margin-bottom: 24px;
+    letter-spacing: -0.3px;
+    box-shadow: 0 6px 24px rgba(255,107,0,0.3);
+  }
+
+  /* Restore */
+  .restore {
+    font-size: 30px;
+    color: #007AFF;
+    text-align: center;
+    margin-bottom: 32px;
+    font-weight: 500;
+  }
+
+  /* Disclaimer */
+  .disclaimer {
+    font-size: 24px;
+    color: #C7C7CC;
+    text-align: center;
+    line-height: 1.5;
+    padding: 0 20px;
+  }
+
+  /* Home indicator */
+  .home-indicator {
+    width: 280px;
+    height: 10px;
+    background: #000;
+    border-radius: 5px;
+    margin: 40px auto 0;
+  }
+</style>
+</head>
+<body>
+<div class="screen">
+  <!-- Header -->
+  <div class="header">
+    <span class="back-arrow">&lsaquo;</span>
+    <span class="header-title">Provself Pro</span>
+  </div>
+
+  <!-- Hero -->
+  <div class="pro-hero">
+    <div class="pro-icon">&#9733;</div>
+    <div class="pro-title">Upgrade to Pro</div>
+    <div class="pro-subtitle">Unlock the full Provself experience<br>and reach your goals faster.</div>
+  </div>
+
+  <!-- Features -->
+  <div class="features">
+    <div class="feature-row">
+      <div class="feature-icon" style="background:#E8F5E9;">&#9989;</div>
+      <span class="feature-text">Unlimited active challenges</span>
+    </div>
+    <div class="feature-row">
+      <div class="feature-icon" style="background:#E3F2FD;">&#129302;</div>
+      <span class="feature-text">Unlimited AI Coach messages</span>
+    </div>
+    <div class="feature-row">
+      <div class="feature-icon" style="background:#FFF3E0;">&#128200;</div>
+      <span class="feature-text">Detailed statistics & graphs</span>
+    </div>
+    <div class="feature-row">
+      <div class="feature-icon" style="background:#F3E5F5;">&#127942;</div>
+      <span class="feature-text">Exclusive badges & PRO share card</span>
+    </div>
+    <div class="feature-row">
+      <div class="feature-icon" style="background:#E0F7FA;">&#129309;</div>
+      <span class="feature-text">Unlimited buddies</span>
+    </div>
+  </div>
+
+  <!-- Plans -->
+  <div class="plans">
+    <div class="plan-card">
+      <div class="plan-row">
+        <div class="radio-outer"><div class="radio-inner"></div></div>
+        <div class="plan-left">
+          <div class="plan-label">Monthly</div>
+          <div class="plan-detail">Billed monthly</div>
+        </div>
+      </div>
+      <div class="plan-right">
+        <div class="plan-price">$6.99</div>
+        <div class="plan-period">per month</div>
+      </div>
+    </div>
+
+    <div class="plan-card selected">
+      <div class="plan-badge">BEST VALUE</div>
+      <div class="save-badge">SAVE 40%</div>
+      <div class="plan-row">
+        <div class="radio-outer"><div class="radio-inner"></div></div>
+        <div class="plan-left">
+          <div class="plan-label">Yearly</div>
+          <div class="plan-detail">Billed annually</div>
+        </div>
+      </div>
+      <div class="plan-right">
+        <div class="plan-price">$49.99</div>
+        <div class="plan-period">per year</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="spacer"></div>
+
+  <!-- Subscribe button -->
+  <div class="subscribe-btn">Subscribe for $49.99/year</div>
+
+  <!-- Restore -->
+  <div class="restore">Restore Purchases</div>
+
+  <!-- Disclaimer -->
+  <p class="disclaimer">Payment will be charged to your Apple ID account. Subscription automatically renews unless canceled at least 24 hours before the end of the current period. Manage subscriptions in Settings.</p>
+
+  <!-- Home indicator -->
+  <div class="home-indicator"></div>
+</div>
+</body>
+</html>

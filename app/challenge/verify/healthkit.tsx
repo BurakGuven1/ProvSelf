@@ -8,6 +8,7 @@ import * as Haptics from 'expo-haptics';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, typography, spacing, borderRadius } from '@/src/constants/theme';
 import { supabase } from '@/src/lib/supabase';
+import { initHealthKit, getMetricValue } from '@/src/lib/healthkit';
 import { useAuthStore } from '@/src/stores/auth-store';
 import { useChallengeStore } from '@/src/stores/challenge-store';
 import Button from '@/src/components/Button';
@@ -25,6 +26,7 @@ export default function HealthKitVerifyScreen() {
   const [healthValue, setHealthValue] = useState<number | null>(null);
   const [checking, setChecking] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [healthKitError, setHealthKitError] = useState(false);
 
   useEffect(() => {
     loadChallenge();
@@ -35,16 +37,25 @@ export default function HealthKitVerifyScreen() {
     const c = await fetchChallengeById(challengeId);
     setChallenge(c);
 
-    // In production, this would read from HealthKit via expo-apple-healthkit
-    // For now, simulate a HealthKit read
-    setTimeout(() => {
-      const config = c?.verification_config as HealthKitVerificationConfig | null;
-      const target = config?.target ?? 10000;
-      // Simulate: random value around the target
-      const simulated = Math.floor(target * (0.7 + Math.random() * 0.6));
-      setHealthValue(simulated);
+    const config = c?.verification_config as HealthKitVerificationConfig | null;
+    const metric = config?.metric ?? 'steps';
+
+    try {
+      const initialized = await initHealthKit();
+      if (!initialized) {
+        setHealthKitError(true);
+        setChecking(false);
+        return;
+      }
+
+      const value = await getMetricValue(metric, new Date());
+      setHealthValue(Math.round(value));
+    } catch (err) {
+      console.warn('HealthKit read error:', err);
+      setHealthKitError(true);
+    } finally {
       setChecking(false);
-    }, 1500);
+    }
   };
 
   const handleVerify = async () => {
@@ -106,6 +117,13 @@ export default function HealthKitVerifyScreen() {
             <ActivityIndicator size="large" color={colors.accent} />
             <Text style={styles.loadingText}>Reading Apple Health data...</Text>
           </View>
+        ) : healthKitError ? (
+          <View style={styles.loadingSection}>
+            <Ionicons name="alert-circle" size={48} color={colors.warning} />
+            <Text style={styles.errorText}>
+              Could not access Apple Health. Please make sure HealthKit permissions are enabled in Settings.
+            </Text>
+          </View>
         ) : (
           <>
             <Card variant="elevated" style={styles.resultCard}>
@@ -141,7 +159,7 @@ export default function HealthKitVerifyScreen() {
       </View>
 
       <View style={styles.footer}>
-        {!checking && (
+        {!checking && !healthKitError && (
           <Button
             title={isMetTarget ? 'Submit Verification' : 'Log Result'}
             onPress={handleVerify}
@@ -188,6 +206,13 @@ const styles = StyleSheet.create({
     ...typography.body,
     color: colors.textSecondary,
     marginTop: spacing.lg,
+  },
+  errorText: {
+    ...typography.body,
+    color: colors.textSecondary,
+    marginTop: spacing.lg,
+    textAlign: 'center',
+    lineHeight: 24,
   },
   resultCard: {
     alignItems: 'center',

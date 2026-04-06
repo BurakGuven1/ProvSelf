@@ -1,16 +1,30 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+  TextInput,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
+import { format, parseISO } from 'date-fns';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, typography, spacing, borderRadius } from '@/src/constants/theme';
 import { useAuthStore } from '@/src/stores/auth-store';
 import { useStakeStore } from '@/src/stores/stake-store';
+import { useChallengeStore } from '@/src/stores/challenge-store';
 import Avatar from '@/src/components/Avatar';
 import Card from '@/src/components/Card';
 import Button from '@/src/components/Button';
 import StakeAmount from '@/src/components/StakeAmount';
-import { useEffect } from 'react';
+import EmptyState from '@/src/components/EmptyState';
+import type { Challenge } from '@/src/types/database';
 
 function StatBox({ label, value }: { label: string; value: string | number }) {
   return (
@@ -21,19 +35,225 @@ function StatBox({ label, value }: { label: string; value: string | number }) {
   );
 }
 
+function ChallengeStatus({ challenge }: { challenge: Challenge }) {
+  const { t } = useTranslation();
+
+  const statusLabel = challenge.status === 'active'
+    ? t('profile.challenge_active')
+    : challenge.status === 'completed_success'
+      ? t('profile.challenge_won')
+      : t('profile.challenge_failed');
+
+  const statusStyle = challenge.status === 'active'
+    ? styles.statusActive
+    : challenge.status === 'completed_success'
+      ? styles.statusWon
+      : styles.statusFailed;
+
+  return (
+    <View style={[styles.statusPill, statusStyle]}>
+      <Text style={styles.statusText}>{statusLabel}</Text>
+    </View>
+  );
+}
+
+function ChallengeItem({ challenge }: { challenge: Challenge }) {
+  const router = useRouter();
+  const { t } = useTranslation();
+
+  const tokenText = challenge.status === 'completed_fail'
+    ? `-${challenge.stake_cents} ${t('stake.credits')}`
+    : challenge.status === 'completed_success'
+      ? `+${challenge.stake_cents} ${t('profile.tokens_returned')}`
+      : `${challenge.stake_cents} ${t('profile.tokens_at_stake')}`;
+
+  return (
+    <Card
+      variant="elevated"
+      style={styles.challengeCard}
+      onPress={() => router.push(`/challenge/${challenge.id}`)}
+    >
+      <View style={styles.challengeHeaderRow}>
+        <View style={styles.challengeTitleWrap}>
+          <Text style={styles.challengeTitle} numberOfLines={1}>
+            {challenge.title}
+          </Text>
+          <Text style={styles.challengeMeta}>
+            {format(parseISO(challenge.start_date), 'MMM d')} - {format(parseISO(challenge.end_date), 'MMM d')}
+          </Text>
+        </View>
+        <ChallengeStatus challenge={challenge} />
+      </View>
+
+      <View style={styles.challengeFooterRow}>
+        <Text style={styles.challengeProgress}>
+          {challenge.completed_days}/{challenge.required_completions} {t('profile.days_done')}
+        </Text>
+        <Text
+          style={[
+            styles.challengeTokens,
+            challenge.status === 'completed_fail' && styles.challengeTokensLost,
+            challenge.status === 'completed_success' && styles.challengeTokensReturned,
+          ]}
+        >
+          {tokenText}
+        </Text>
+      </View>
+    </Card>
+  );
+}
+
 export default function ProfileScreen() {
   const { t } = useTranslation();
   const router = useRouter();
-  const { profile, signOut, loading } = useAuthStore();
+  const {
+    profile,
+    signOut,
+    loading,
+    error,
+    fetchProfile,
+    updateProfile,
+  } = useAuthStore();
   const { balance, fetchBalance } = useStakeStore();
+  const { challenges, fetchChallenges, loading: challengesLoading } = useChallengeStore();
+
+  const [initializing, setInitializing] = useState(true);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [displayNameInput, setDisplayNameInput] = useState('');
+  const [usernameInput, setUsernameInput] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  const refreshData = useCallback(async (showLoader = false) => {
+    if (showLoader) {
+      setInitializing(true);
+    }
+
+    try {
+      await Promise.all([
+        fetchProfile(),
+        fetchBalance(),
+        fetchChallenges(),
+      ]);
+    } finally {
+      if (showLoader) {
+        setInitializing(false);
+      }
+    }
+  }, [fetchBalance, fetchChallenges, fetchProfile]);
 
   useEffect(() => {
-    fetchBalance();
-  }, []);
+    refreshData(true);
+  }, [refreshData]);
 
-  if (!profile) return null;
+  useFocusEffect(
+    useCallback(() => {
+      refreshData(false);
+    }, [refreshData]),
+  );
 
-  const xpForNext = profile.level * 1000;
+  useEffect(() => {
+    if (!profile) return;
+    setDisplayNameInput(profile.display_name ?? '');
+    setUsernameInput(profile.username);
+  }, [profile]);
+
+  const handleSaveProfile = async () => {
+    if (!profile) return;
+
+    const normalizedUsername = usernameInput.trim().toLowerCase();
+    const normalizedDisplayName = displayNameInput.trim();
+
+    if (!/^[a-z0-9_]{3,24}$/.test(normalizedUsername)) {
+      Alert.alert('Invalid username', 'Username must be 3-24 chars and use letters, numbers, underscore.');
+      return;
+    }
+
+    const usernameUnchanged = normalizedUsername === profile.username;
+    const displayNameUnchanged = (normalizedDisplayName || null) === (profile.display_name || null);
+    if (usernameUnchanged && displayNameUnchanged) {
+      setEditingProfile(false);
+      return;
+    }
+
+    setSavingProfile(true);
+    try {
+      await updateProfile({
+        username: normalizedUsername,
+        display_name: normalizedDisplayName || null,
+      });
+      setEditingProfile(false);
+      Alert.alert('Saved', 'Profile updated successfully.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('duplicate') || message.includes('unique')) {
+        Alert.alert('Username unavailable', 'This username is already taken.');
+      } else {
+        Alert.alert('Error', message);
+      }
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const activeChallenges = useMemo(
+    () => challenges.filter((challenge) => challenge.status === 'active'),
+    [challenges],
+  );
+
+  const pastChallenges = useMemo(
+    () => [...challenges]
+      .filter((challenge) => challenge.status !== 'active')
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
+    [challenges],
+  );
+
+  const totalCommitted = useMemo(
+    () => challenges.reduce((sum, challenge) => sum + challenge.stake_cents, 0),
+    [challenges],
+  );
+
+  const totalReturned = useMemo(
+    () => challenges
+      .filter((challenge) => challenge.status === 'completed_success')
+      .reduce((sum, challenge) => sum + challenge.stake_cents, 0),
+    [challenges],
+  );
+
+  const totalLostFromFailedChallenges = useMemo(
+    () => challenges
+      .filter((challenge) => challenge.status === 'completed_fail')
+      .reduce((sum, challenge) => sum + challenge.stake_cents, 0),
+    [challenges],
+  );
+
+  if (!profile && (initializing || loading)) {
+    return (
+      <SafeAreaView style={styles.loadingContainer} edges={['top']}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </SafeAreaView>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.loadingContainer}>
+          <EmptyState
+            title={t('common.error')}
+            message={error || 'Profile could not be loaded.'}
+            actionLabel={t('common.retry')}
+            onAction={() => refreshData(true)}
+          />
+          <Button
+            title={t('auth.sign_out')}
+            onPress={signOut}
+            variant="ghost"
+          />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   const xpProgress = (profile.xp % 1000) / 1000;
 
   return (
@@ -49,76 +269,174 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.profileSection}>
-          <Avatar
-            uri={profile.avatar_url}
-            size="lg"
-            fallback={profile.username.slice(0, 2).toUpperCase()}
-          />
-          <Text style={styles.displayName}>
-            {profile.display_name || profile.username}
-          </Text>
-          <Text style={styles.username}>@{profile.username}</Text>
-          <View style={styles.levelBadge}>
-            <Ionicons name="star" size={14} color={colors.stakeGoldDark} />
-            <Text style={styles.levelText}>
-              {t('profile.level', { level: profile.level })} · {profile.xp} XP
-            </Text>
+        <Card variant="elevated" style={styles.heroCard}>
+          <View style={styles.heroTopRow}>
+            <Avatar
+              uri={profile.avatar_url}
+              size="lg"
+              fallback={profile.username.slice(0, 2).toUpperCase()}
+            />
+            <View style={styles.heroIdentity}>
+              <Text style={styles.displayName} numberOfLines={1}>
+                {profile.display_name || profile.username}
+              </Text>
+              <Text style={styles.username}>@{profile.username}</Text>
+              <View style={styles.levelBadge}>
+                <Ionicons name="star" size={14} color={colors.stakeGoldDark} />
+                <Text style={styles.levelText}>
+                  {t('profile.level', { level: profile.level })} - {profile.xp} XP
+                </Text>
+              </View>
+            </View>
           </View>
+
           <View style={styles.xpBarBg}>
             <View style={[styles.xpBarFill, { width: `${xpProgress * 100}%` }]} />
           </View>
-        </View>
 
-        {/* Stake Balance */}
-        <Card
-          variant="elevated"
-          onPress={() => router.push('/stake/balance')}
-          style={styles.balanceCard}
-        >
-          <View style={styles.balanceRow}>
+          <View style={styles.balanceCardRow}>
             <View>
               <Text style={styles.balanceLabel}>{t('stake.your_balance')}</Text>
-              <StakeAmount cents={balance?.balance_cents ?? 0} size="lg" />
+              <StakeAmount cents={balance?.balance_cents ?? 0} size="md" />
             </View>
             <Button
-              title={t('stake.add_funds')}
-              onPress={() => router.push('/stake/purchase')}
+              title="Store"
+              onPress={() => router.push('/store')}
               variant="primary"
               size="sm"
             />
           </View>
         </Card>
 
-        {/* Stats Grid */}
+        <Card style={styles.profileEditorCard}>
+          <View style={styles.profileEditorHeader}>
+            <Text style={styles.profileEditorTitle}>Profile Details</Text>
+            {!editingProfile ? (
+              <TouchableOpacity onPress={() => setEditingProfile(true)}>
+                <Ionicons name="create-outline" size={20} color={colors.accent} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          {editingProfile ? (
+            <>
+              <Text style={styles.fieldLabel}>Display name</Text>
+              <TextInput
+                style={styles.fieldInput}
+                value={displayNameInput}
+                onChangeText={setDisplayNameInput}
+                placeholder="Your name"
+                placeholderTextColor={colors.textTertiary}
+              />
+
+              <Text style={styles.fieldLabel}>Username</Text>
+              <TextInput
+                style={styles.fieldInput}
+                value={usernameInput}
+                onChangeText={setUsernameInput}
+                placeholder="username"
+                placeholderTextColor={colors.textTertiary}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+
+              <View style={styles.profileEditActions}>
+                <Button
+                  title="Cancel"
+                  onPress={() => {
+                    setEditingProfile(false);
+                    setDisplayNameInput(profile.display_name ?? '');
+                    setUsernameInput(profile.username);
+                  }}
+                  variant="outline"
+                  size="sm"
+                />
+                <Button
+                  title="Save"
+                  onPress={handleSaveProfile}
+                  loading={savingProfile}
+                  size="sm"
+                />
+              </View>
+            </>
+          ) : (
+            <View style={styles.profileInfoRows}>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Username</Text>
+                <Text style={styles.infoValue}>@{profile.username}</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Display name</Text>
+                <Text style={styles.infoValue}>{profile.display_name || '-'}</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Settings</Text>
+                <TouchableOpacity onPress={() => router.push('/settings')}>
+                  <Text style={styles.settingsLink}>Open</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </Card>
+
         <Text style={styles.sectionTitle}>{t('profile.statistics')}</Text>
         <View style={styles.statsGrid}>
           <StatBox label={t('profile.challenges_won')} value={profile.total_wins} />
           <StatBox label={t('profile.challenges_lost')} value={profile.total_losses} />
           <StatBox label={t('profile.current_streak')} value={profile.current_streak} />
           <StatBox label={t('profile.longest_streak')} value={profile.longest_streak} />
-          <StatBox
-            label={t('profile.total_staked')}
-            value={`$${(profile.total_staked_cents / 100).toFixed(0)}`}
-          />
-          <StatBox
-            label={t('profile.total_saved')}
-            value={`$${((profile.total_staked_cents - profile.total_lost_cents) / 100).toFixed(0)}`}
-          />
+          <StatBox label={t('profile.total_staked')} value={totalCommitted} />
+          <StatBox label={t('profile.total_saved')} value={totalReturned} />
+          <StatBox label={t('profile.tokens_lost')} value={totalLostFromFailedChallenges} />
+          <StatBox label={t('stake.your_balance')} value={balance?.balance_cents ?? 0} />
         </View>
 
-        {/* Badges */}
-        <Text style={styles.sectionTitle}>{t('profile.badges')}</Text>
-        <Card style={styles.badgesCard}>
-          <Text style={styles.noBadges}>{t('profile.no_badges')}</Text>
+        <Text style={styles.sectionTitle}>Funds Overview</Text>
+        <Card style={styles.fundsCard}>
+          <View style={styles.fundsRow}>
+            <Text style={styles.fundsLabel}>Purchased</Text>
+            <Text style={styles.fundsValue}>{balance?.total_purchased_cents ?? 0}</Text>
+          </View>
+          <View style={styles.fundsRow}>
+            <Text style={styles.fundsLabel}>Returned</Text>
+            <Text style={[styles.fundsValue, { color: colors.success }]}>{balance?.total_returned_cents ?? 0}</Text>
+          </View>
+          <View style={styles.fundsRow}>
+            <Text style={styles.fundsLabel}>Forfeited</Text>
+            <Text style={[styles.fundsValue, { color: colors.danger }]}>{balance?.total_forfeited_cents ?? 0}</Text>
+          </View>
         </Card>
+
+        <Text style={styles.sectionTitle}>{t('profile.current_challenges')}</Text>
+        {activeChallenges.length > 0 ? (
+          activeChallenges.map((challenge) => (
+            <ChallengeItem key={challenge.id} challenge={challenge} />
+          ))
+        ) : (
+          <EmptyState
+            title={t('profile.no_current_challenges_title')}
+            message={t('profile.no_current_challenges_message')}
+          />
+        )}
+
+        <Text style={styles.sectionTitle}>{t('profile.past_challenges')}</Text>
+        {pastChallenges.length > 0 ? (
+          pastChallenges.map((challenge) => (
+            <ChallengeItem key={challenge.id} challenge={challenge} />
+          ))
+        ) : (
+          <EmptyState
+            title={t('profile.no_past_challenges_title')}
+            message={t('profile.no_past_challenges_message')}
+          />
+        )}
 
         <View style={styles.signOutSection}>
           <Button
             title={t('auth.sign_out')}
             onPress={signOut}
             variant="ghost"
-            loading={loading}
+            loading={loading || challengesLoading}
           />
         </View>
       </ScrollView>
@@ -131,6 +449,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.background,
+  },
   scroll: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxl,
@@ -140,20 +464,26 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingTop: spacing.md,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
   },
   title: {
     ...typography.largeTitle,
     color: colors.textPrimary,
   },
-  profileSection: {
+  heroCard: {
+    marginBottom: spacing.lg,
+  },
+  heroTopRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.xl,
+  },
+  heroIdentity: {
+    marginLeft: spacing.md,
+    flex: 1,
   },
   displayName: {
-    ...typography.title2,
+    ...typography.title3,
     color: colors.textPrimary,
-    marginTop: spacing.md,
   },
   username: {
     ...typography.subhead,
@@ -163,7 +493,7 @@ const styles = StyleSheet.create({
   levelBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: spacing.md,
+    marginTop: spacing.sm,
   },
   levelText: {
     ...typography.footnote,
@@ -172,22 +502,22 @@ const styles = StyleSheet.create({
     marginLeft: spacing.xs,
   },
   xpBarBg: {
-    width: 140,
-    height: 4,
+    height: 6,
     backgroundColor: colors.backgroundSecondary,
-    borderRadius: 2,
-    marginTop: spacing.sm,
+    borderRadius: 3,
+    marginTop: spacing.md,
     overflow: 'hidden',
   },
   xpBarFill: {
     height: '100%',
     backgroundColor: colors.stakeGold,
-    borderRadius: 2,
+    borderRadius: 3,
   },
-  balanceCard: {
-    marginBottom: spacing.lg,
-  },
-  balanceRow: {
+  balanceCardRow: {
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.backgroundTertiary,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -196,6 +526,62 @@ const styles = StyleSheet.create({
     ...typography.footnote,
     color: colors.textSecondary,
     marginBottom: spacing.xs,
+  },
+  profileEditorCard: {
+    marginBottom: spacing.lg,
+  },
+  profileEditorHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  profileEditorTitle: {
+    ...typography.headline,
+    color: colors.textPrimary,
+  },
+  fieldLabel: {
+    ...typography.caption1,
+    color: colors.textSecondary,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  fieldInput: {
+    backgroundColor: colors.backgroundSecondary,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    ...typography.body,
+    color: colors.textPrimary,
+  },
+  profileEditActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  profileInfoRows: {
+    gap: spacing.sm,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.xs,
+  },
+  infoLabel: {
+    ...typography.subhead,
+    color: colors.textSecondary,
+  },
+  infoValue: {
+    ...typography.subhead,
+    color: colors.textPrimary,
+    fontWeight: '600',
+  },
+  settingsLink: {
+    ...typography.subhead,
+    color: colors.accent,
+    fontWeight: '600',
   },
   sectionTitle: {
     ...typography.title3,
@@ -209,30 +595,101 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   statBox: {
-    width: '33.33%',
+    width: '25%',
     paddingHorizontal: spacing.xs,
     marginBottom: spacing.md,
     alignItems: 'center',
   },
   statValue: {
-    ...typography.title2,
+    ...typography.title3,
     color: colors.textPrimary,
   },
   statLabel: {
-    ...typography.caption1,
+    ...typography.caption2,
     color: colors.textSecondary,
     marginTop: spacing.xs,
     textAlign: 'center',
   },
-  badgesCard: {
+  fundsCard: {
     marginBottom: spacing.lg,
-    alignItems: 'center',
   },
-  noBadges: {
+  fundsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+  },
+  fundsLabel: {
     ...typography.subhead,
     color: colors.textSecondary,
-    textAlign: 'center',
-    paddingVertical: spacing.md,
+  },
+  fundsValue: {
+    ...typography.headline,
+    color: colors.textPrimary,
+  },
+  challengeCard: {
+    marginBottom: spacing.md,
+  },
+  challengeHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  challengeTitleWrap: {
+    flex: 1,
+    marginRight: spacing.md,
+  },
+  challengeTitle: {
+    ...typography.headline,
+    color: colors.textPrimary,
+    marginBottom: 2,
+  },
+  challengeMeta: {
+    ...typography.caption1,
+    color: colors.textSecondary,
+  },
+  statusPill: {
+    borderRadius: borderRadius.full,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+  },
+  statusActive: {
+    backgroundColor: '#E3F2FD',
+  },
+  statusWon: {
+    backgroundColor: '#E8F5E9',
+  },
+  statusFailed: {
+    backgroundColor: '#FFEBEE',
+  },
+  statusText: {
+    ...typography.caption2,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  challengeFooterRow: {
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.backgroundTertiary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  challengeProgress: {
+    ...typography.footnote,
+    color: colors.textSecondary,
+  },
+  challengeTokens: {
+    ...typography.footnote,
+    color: colors.textPrimary,
+    fontWeight: '700',
+  },
+  challengeTokensLost: {
+    color: colors.danger,
+  },
+  challengeTokensReturned: {
+    color: colors.success,
   },
   signOutSection: {
     alignItems: 'center',

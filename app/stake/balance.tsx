@@ -37,19 +37,19 @@ export default function BalanceScreen() {
             <View style={styles.miniStat}>
               <Text style={styles.miniStatLabel}>Purchased</Text>
               <Text style={styles.miniStatValue}>
-                ${((balance?.total_purchased_cents ?? 0) / 100).toFixed(0)}
+                {balance?.total_purchased_cents ?? 0}
               </Text>
             </View>
             <View style={styles.miniStat}>
               <Text style={styles.miniStatLabel}>Returned</Text>
               <Text style={[styles.miniStatValue, { color: colors.success }]}>
-                ${((balance?.total_returned_cents ?? 0) / 100).toFixed(0)}
+                {balance?.total_returned_cents ?? 0}
               </Text>
             </View>
             <View style={styles.miniStat}>
               <Text style={styles.miniStatLabel}>Forfeited</Text>
               <Text style={[styles.miniStatValue, { color: colors.danger }]}>
-                ${((balance?.total_forfeited_cents ?? 0) / 100).toFixed(0)}
+                {balance?.total_forfeited_cents ?? 0}
               </Text>
             </View>
           </View>

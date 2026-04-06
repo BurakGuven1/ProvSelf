@@ -16,9 +16,8 @@ const sizeConfig = {
   lg: { dollar: typography.title1, coin: 24 },
 } as const;
 
-function formatCents(cents: number): string {
-  const dollars = Math.abs(cents) / 100;
-  return dollars.toFixed(2);
+function formatCredits(cents: number): string {
+  return Math.abs(Math.round(cents)).toLocaleString();
 }
 
 export default function StakeAmount({
@@ -29,13 +28,13 @@ export default function StakeAmount({
   const config = sizeConfig[size];
   const isNegative = cents < 0;
   const sign = showSign ? (isNegative ? '-' : '+') : isNegative ? '-' : '';
-  const formatted = formatCents(cents);
+  const formatted = formatCredits(cents);
 
   return (
-    <View style={styles.container} accessibilityLabel={`${sign}$${formatted}`}>
+    <View style={styles.container} accessibilityLabel={`${sign}${formatted} tokens`}>
       <Text style={[styles.coin, { fontSize: config.coin }]}>&#x25C9;</Text>
       <Text style={[styles.amount, config.dollar]}>
-        {sign}${formatted}
+        {sign}{formatted}
       </Text>
     </View>
   );

@@ -1,4 +1,5 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
@@ -6,6 +7,7 @@ import Constants from 'expo-constants';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, typography, spacing, borderRadius } from '@/src/constants/theme';
 import { useAuthStore } from '@/src/stores/auth-store';
+import { restorePurchases } from '@/src/lib/revenue-cat';
 import ScreenHeader from '@/src/components/ScreenHeader';
 import Button from '@/src/components/Button';
 
@@ -42,7 +44,25 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { t } = useTranslation();
   const { signOut, loading } = useAuthStore();
+  const [restoring, setRestoring] = useState(false);
   const version = Constants.expoConfig?.version ?? '1.0.0';
+
+  const handleRestorePurchases = async () => {
+    setRestoring(true);
+    try {
+      const customerInfo = await restorePurchases();
+      const hasActive = Object.keys(customerInfo.entitlements.active).length > 0;
+      if (hasActive) {
+        Alert.alert(t('settings.restore_purchases'), 'Your purchases have been restored successfully.');
+      } else {
+        Alert.alert(t('settings.restore_purchases'), 'No previous purchases found.');
+      }
+    } catch {
+      Alert.alert(t('common.error'), t('common.retry'));
+    } finally {
+      setRestoring(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -75,20 +95,20 @@ export default function SettingsScreen() {
           <SettingsRow
             icon="shield-outline"
             label={t('settings.privacy_policy')}
-            onPress={() => {}}
+            onPress={() => router.push('/settings/privacy')}
           />
           <SettingsRow
             icon="document-text-outline"
             label={t('settings.terms')}
-            onPress={() => {}}
+            onPress={() => router.push('/settings/terms')}
           />
         </View>
 
         <View style={styles.section}>
           <SettingsRow
             icon="refresh-outline"
-            label={t('settings.restore_purchases')}
-            onPress={() => {}}
+            label={restoring ? 'Restoring...' : t('settings.restore_purchases')}
+            onPress={handleRestorePurchases}
           />
         </View>
 

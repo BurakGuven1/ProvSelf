@@ -13,12 +13,22 @@ import Button from '@/src/components/Button';
 export default function BuddyInviteScreen() {
   const router = useRouter();
   const { t } = useTranslation();
-  const { session } = useAuthStore();
+  const { session, profile, fetchProfile } = useAuthStore();
   const [username, setUsername] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleInvite = async () => {
-    if (!username.trim() || !session?.user) return;
+    if (!username.trim()) return;
+
+    let currentUserId = profile?.id ?? session?.user?.id;
+    if (!currentUserId) {
+      await fetchProfile();
+      currentUserId = useAuthStore.getState().profile?.id ?? useAuthStore.getState().session?.user?.id;
+    }
+    if (!currentUserId) {
+      Alert.alert('Session error', 'Please sign out and sign in again.');
+      return;
+    }
 
     setLoading(true);
     try {
@@ -34,7 +44,7 @@ export default function BuddyInviteScreen() {
       }
 
       const { error } = await supabase.from('buddy_pairs').insert({
-        user_id: session.user.id,
+        user_id: currentUserId,
         buddy_id: buddy.id,
       });
 

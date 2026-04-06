@@ -3,7 +3,8 @@ export interface Profile {
   username: string;
   display_name: string | null;
   avatar_url: string | null;
-  locale: 'en' | 'de' | 'fr' | 'ja';
+  push_token: string | null;
+  locale: 'en' | 'de' | 'fr' | 'ja' | 'zh' | 'pt-BR' | 'ru' | 'hi' | 'ko' | 'it' | 'es';
   timezone: string;
   total_challenges: number;
   total_wins: number;
@@ -40,6 +41,7 @@ export interface StakePurchase {
 }
 
 export type ChallengeCategory = 'fitness' | 'health' | 'productivity' | 'mindfulness' | 'custom';
+export type ChallengeDifficulty = 'easy' | 'medium' | 'hard';
 export type ChallengeFrequency = 'daily' | 'weekly';
 export type ChallengeStatus = 'active' | 'completed_success' | 'completed_fail' | 'cancelled';
 export type VerificationType = 'healthkit' | 'photo_ai' | 'buddy_verify';

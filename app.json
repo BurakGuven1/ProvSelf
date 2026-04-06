@@ -45,8 +45,8 @@
       "eas": {
         "projectId": "YOUR_EAS_PROJECT_ID"
       },
-      "supabaseUrl": "YOUR_SUPABASE_URL",
-      "supabaseAnonKey": "YOUR_SUPABASE_ANON_KEY",
+      "supabaseUrl": "SET_IN_ENV",
+      "supabaseAnonKey": "SET_IN_ENV",
       "revenueCatApiKey": "YOUR_REVENUECAT_API_KEY"
     }
   }

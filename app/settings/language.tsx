@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
@@ -14,6 +14,13 @@ const LANGUAGE_LABELS: Record<SupportedLanguage, string> = {
   de: 'Deutsch',
   fr: 'Fran\u00e7ais',
   ja: '\u65e5\u672c\u8a9e',
+  zh: '\u7b80\u4f53\u4e2d\u6587',
+  'pt-BR': 'Portugu\u00eas (Brasil)',
+  ru: '\u0420\u0443\u0441\u0441\u043a\u0438\u0439',
+  hi: '\u0939\u093f\u0928\u094d\u0926\u0940',
+  ko: '\ud55c\uad6d\uc5b4',
+  it: 'Italiano',
+  es: 'Espa\u00f1ol',
 };
 
 export default function LanguageScreen() {
@@ -39,21 +46,23 @@ export default function LanguageScreen() {
         onBack={() => router.back()}
       />
 
-      <View style={styles.list}>
-        {SUPPORTED_LANGUAGES.map((lang) => (
-          <TouchableOpacity
-            key={lang}
-            style={styles.row}
-            onPress={() => handleSelect(lang)}
-            activeOpacity={0.6}
-          >
-            <Text style={styles.label}>{LANGUAGE_LABELS[lang]}</Text>
-            {i18n.language === lang && (
-              <Ionicons name="checkmark" size={22} color={colors.accent} />
-            )}
-          </TouchableOpacity>
-        ))}
-      </View>
+      <ScrollView>
+        <View style={styles.list}>
+          {SUPPORTED_LANGUAGES.map((lang) => (
+            <TouchableOpacity
+              key={lang}
+              style={styles.row}
+              onPress={() => handleSelect(lang)}
+              activeOpacity={0.6}
+            >
+              <Text style={styles.label}>{LANGUAGE_LABELS[lang]}</Text>
+              {i18n.language === lang && (
+                <Ionicons name="checkmark" size={22} color={colors.accent} />
+              )}
+            </TouchableOpacity>
+          ))}
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }

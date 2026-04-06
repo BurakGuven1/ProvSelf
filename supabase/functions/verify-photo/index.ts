@@ -20,6 +20,12 @@ serve(async (req: Request) => {
 
     // Fetch image and convert to base64
     const imageResponse = await fetch(photo_url);
+    if (!imageResponse.ok) {
+      return new Response(
+        JSON.stringify({ error: 'Failed to fetch image', status: imageResponse.status }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
     const imageBuffer = await imageResponse.arrayBuffer();
     const base64Image = btoa(
       new Uint8Array(imageBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
@@ -62,6 +68,14 @@ Respond with JSON only: { "verified": true/false, "confidence": 0.0-1.0, "reason
         ],
       }),
     });
+
+    if (!anthropicResponse.ok) {
+      const errBody = await anthropicResponse.text();
+      return new Response(
+        JSON.stringify({ error: 'AI verification service error', details: errBody }),
+        { status: 502, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
 
     const aiData = await anthropicResponse.json();
     const aiText = aiData.content?.[0]?.text ?? '{}';

@@ -1,5 +1,14 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, Alert, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  TouchableOpacity,
+} from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
@@ -14,16 +23,37 @@ export default function LoginScreen() {
   const { signIn, loading } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+
+  const validate = () => {
+    const newErrors: { email?: string; password?: string } = {};
+    const trimmedEmail = email.trim();
+
+    if (!trimmedEmail) {
+      newErrors.email = t('auth.errors.email_required');
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      newErrors.email = t('auth.errors.email_invalid');
+    }
+
+    if (!password) {
+      newErrors.password = t('auth.errors.password_required');
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
   const handleSignIn = async () => {
-    if (!email.trim() || !password.trim()) {
-      Alert.alert(t('common.error'), 'Please fill in all fields.');
-      return;
-    }
+    if (!validate()) return;
     try {
       await signIn(email.trim(), password);
-    } catch {
-      Alert.alert(t('common.error'), t('common.retry'));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '';
+      if (message.includes('Invalid login credentials')) {
+        Alert.alert(t('common.error'), t('auth.errors.invalid_credentials'));
+      } else {
+        Alert.alert(t('common.error'), t('auth.errors.generic'));
+      }
     }
   };
 
@@ -37,8 +67,13 @@ export default function LoginScreen() {
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
         >
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Text style={styles.backText}>{t('common.back')}</Text>
+          </TouchableOpacity>
+
           <View style={styles.header}>
             <Text style={styles.title}>{t('auth.sign_in')}</Text>
+            <Text style={styles.subtitle}>{t('auth.sign_in_subtitle')}</Text>
           </View>
 
           <View style={styles.form}>
@@ -46,18 +81,32 @@ export default function LoginScreen() {
               label={t('auth.email')}
               placeholder="you@example.com"
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(text) => {
+                setEmail(text);
+                if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }));
+              }}
               keyboardType="email-address"
               autoCapitalize="none"
+              error={errors.email}
             />
             <View style={styles.fieldSpacer} />
             <Input
               label={t('auth.password')}
               placeholder="••••••••"
               value={password}
-              onChangeText={setPassword}
+              onChangeText={(text) => {
+                setPassword(text);
+                if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }));
+              }}
               secureTextEntry
+              error={errors.password}
             />
+            <TouchableOpacity
+              onPress={() => router.push('/(auth)/forgot-password')}
+              style={styles.forgotButton}
+            >
+              <Text style={styles.forgotText}>{t('auth.forgot_password')}</Text>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.actions}>
@@ -95,18 +144,43 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     justifyContent: 'center',
   },
+  backButton: {
+    position: 'absolute',
+    top: spacing.md,
+    left: 0,
+    padding: spacing.sm,
+  },
+  backText: {
+    ...typography.body,
+    color: colors.accent,
+  },
   header: {
     marginBottom: spacing.xl,
   },
   title: {
     ...typography.largeTitle,
     color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  subtitle: {
+    ...typography.body,
+    color: colors.textSecondary,
   },
   form: {
     marginBottom: spacing.xl,
   },
   fieldSpacer: {
     height: spacing.md,
+  },
+  forgotButton: {
+    alignSelf: 'flex-end',
+    marginTop: spacing.sm,
+    padding: spacing.xs,
+  },
+  forgotText: {
+    ...typography.subhead,
+    color: colors.accent,
+    fontWeight: '500',
   },
   actions: {},
   switchRow: {

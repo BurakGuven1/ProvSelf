@@ -43,6 +43,14 @@ serve(async (req: Request) => {
       }),
     });
 
+    if (!response.ok) {
+      const errBody = await response.text();
+      return new Response(
+        JSON.stringify({ error: 'AI coach service error', details: errBody }),
+        { status: 502, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
     const aiData = await response.json();
     const content = aiData.content?.[0]?.text ?? 'Keep going! You got this.';
 

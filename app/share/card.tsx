@@ -49,7 +49,7 @@ export default function ShareCardScreen() {
   const progress = challenge.required_completions > 0
     ? challenge.completed_days / challenge.required_completions
     : 0;
-  const stakeDollars = (challenge.stake_cents / 100).toFixed(0);
+  const stakeTokens = challenge.stake_cents;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -85,7 +85,7 @@ export default function ShareCardScreen() {
             </View>
 
             <Text style={styles.cardStake}>
-              ${stakeDollars} staked · ${stakeDollars} saved
+              {stakeTokens} committed · {stakeTokens} returned
             </Text>
 
             <View style={styles.cardFooter}>

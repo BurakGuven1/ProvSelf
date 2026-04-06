@@ -14,8 +14,8 @@ interface CoachState {
 }
 
 async function getCurrentUserId(): Promise<string | null> {
-  const { data } = await supabase.auth.getUser();
-  return data.user?.id ?? null;
+  const { data } = await supabase.auth.getSession();
+  return data.session?.user?.id ?? null;
 }
 
 export const useCoachStore = create<CoachState>((set, get) => ({

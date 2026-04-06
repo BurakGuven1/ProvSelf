@@ -14,8 +14,8 @@ interface StakeState {
 }
 
 async function getCurrentUserId(): Promise<string | null> {
-  const { data } = await supabase.auth.getUser();
-  return data.user?.id ?? null;
+  const { data } = await supabase.auth.getSession();
+  return data.session?.user?.id ?? null;
 }
 
 export const useStakeStore = create<StakeState>((set, get) => ({
@@ -58,25 +58,20 @@ export const useStakeStore = create<StakeState>((set, get) => ({
   },
 
   deductStake: async (amountCents) => {
-    const current = get().balance;
-    if (!current) throw new Error('No balance loaded');
-    if (current.balance_cents < amountCents) throw new Error('Insufficient balance');
+    const userId = await getCurrentUserId();
+    if (!userId) throw new Error('Not authenticated');
 
     set({ loading: true, error: null });
     try {
-      const { data, error } = await supabase
-        .from('stake_balances')
-        .update({
-          balance_cents: current.balance_cents - amountCents,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', current.id)
-        .select()
-        .single();
+      const { error } = await supabase.rpc('deduct_stake', {
+        p_user_id: userId,
+        p_amount: amountCents,
+      });
       if (error) throw error;
-      set({ balance: data as StakeBalance });
+      // Refresh full balance from DB
+      await get().fetchBalance();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to deduct stake';
+      const message = err instanceof Error ? err.message : 'Insufficient balance';
       set({ error: message });
       throw err;
     } finally {

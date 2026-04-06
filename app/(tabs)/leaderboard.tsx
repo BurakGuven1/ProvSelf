@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -6,58 +6,199 @@ import {
   FlatList,
   TouchableOpacity,
   RefreshControl,
+  Alert,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
+import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, typography, spacing, borderRadius } from '@/src/constants/theme';
 import { supabase } from '@/src/lib/supabase';
 import { useAuthStore } from '@/src/stores/auth-store';
 import Avatar from '@/src/components/Avatar';
+import EmptyState from '@/src/components/EmptyState';
 import type { LeaderboardEntry } from '@/src/types/database';
+
+interface BuddyPairRow {
+  user_id: string;
+  buddy_id: string;
+}
+
+const LEADERBOARD_FIELDS =
+  'id, username, display_name, avatar_url, current_streak, longest_streak, total_wins, xp, level';
 
 export default function LeaderboardScreen() {
   const { t } = useTranslation();
-  const { profile } = useAuthStore();
+  const { profile, fetchProfile } = useAuthStore();
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState<'global' | 'friends'>('global');
+  const [inviteUsername, setInviteUsername] = useState('');
+  const [inviteLoading, setInviteLoading] = useState(false);
 
-  const fetchLeaderboard = async () => {
+  const fetchGlobalLeaderboard = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select(LEADERBOARD_FIELDS)
+      .gt('total_challenges', 0)
+      .order('xp', { ascending: false })
+      .limit(100);
+    if (error) throw error;
+
+    return (data ?? []).map((d, i) => ({ ...d, global_rank: i + 1 } as LeaderboardEntry));
+  }, []);
+
+  const fetchFriendsLeaderboard = useCallback(async () => {
+    if (!profile?.id) {
+      return [];
+    }
+
+    const { data: pairs, error: pairsError } = await supabase
+      .from('buddy_pairs')
+      .select('user_id, buddy_id')
+      .eq('status', 'active')
+      .or(`user_id.eq.${profile.id},buddy_id.eq.${profile.id}`);
+    if (pairsError) throw pairsError;
+
+    const idSet = new Set<string>([profile.id]);
+    (pairs ?? []).forEach((pair) => {
+      const p = pair as BuddyPairRow;
+      idSet.add(p.user_id === profile.id ? p.buddy_id : p.user_id);
+    });
+
+    const friendIds = Array.from(idSet);
+    if (friendIds.length === 0) {
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .select(LEADERBOARD_FIELDS)
+      .in('id', friendIds)
+      .gt('total_challenges', 0)
+      .order('xp', { ascending: false });
+    if (error) throw error;
+
+    return (data ?? []).map((d, i) => ({ ...d, global_rank: i + 1 } as LeaderboardEntry));
+  }, [profile?.id]);
+
+  const fetchLeaderboard = useCallback(async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, username, display_name, avatar_url, current_streak, longest_streak, total_wins, xp, level')
-        .gt('total_challenges', 0)
-        .order('xp', { ascending: false })
-        .limit(100);
-
-      if (!error && data) {
-        setEntries(
-          data.map((d, i) => ({ ...d, global_rank: i + 1 } as LeaderboardEntry))
-        );
-      }
+      const leaderboard = tab === 'global'
+        ? await fetchGlobalLeaderboard()
+        : await fetchFriendsLeaderboard();
+      setEntries(leaderboard);
     } catch {
-      // silently fail
+      setEntries([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [fetchFriendsLeaderboard, fetchGlobalLeaderboard, tab]);
+
+  const handleInviteFriend = useCallback(async () => {
+    const myProfile = profile;
+    const username = inviteUsername.trim().toLowerCase();
+
+    if (!myProfile?.id) {
+      await fetchProfile();
+      Alert.alert('Please wait', 'Your profile is still loading. Try again in a second.');
+      return;
+    }
+    if (!username) return;
+    if (username === myProfile.username.toLowerCase()) {
+      Alert.alert('Invalid username', 'You cannot add yourself.');
+      return;
+    }
+
+    setInviteLoading(true);
+    try {
+      const { data: buddy, error: buddyError } = await supabase
+        .from('profiles')
+        .select('id, username')
+        .eq('username', username)
+        .maybeSingle();
+      if (buddyError) throw buddyError;
+      if (!buddy) {
+        Alert.alert('User not found', 'No user with that username exists.');
+        return;
+      }
+
+      const { data: existingPair, error: existingError } = await supabase
+        .from('buddy_pairs')
+        .select('id, status, user_id, buddy_id')
+        .or(
+          `and(user_id.eq.${myProfile.id},buddy_id.eq.${buddy.id}),and(user_id.eq.${buddy.id},buddy_id.eq.${myProfile.id})`,
+        )
+        .maybeSingle();
+      if (existingError) throw existingError;
+
+      if (existingPair?.status === 'active') {
+        Alert.alert('Already friends', `You are already buddies with @${username}.`);
+        return;
+      }
+      if (existingPair?.status === 'pending') {
+        if (existingPair.user_id === myProfile.id) {
+          Alert.alert('Invite already sent', `Your request to @${username} is pending.`);
+          return;
+        }
+
+        const { error: acceptError } = await supabase
+          .from('buddy_pairs')
+          .update({ status: 'active' })
+          .eq('id', existingPair.id);
+        if (acceptError) throw acceptError;
+
+        Alert.alert('Friend added', `You are now buddies with @${username}.`);
+        setInviteUsername('');
+        await fetchLeaderboard();
+        return;
+      }
+
+      const { error: inviteError } = await supabase.from('buddy_pairs').insert({
+        user_id: myProfile.id,
+        buddy_id: buddy.id,
+      });
+      if (inviteError) throw inviteError;
+
+      Alert.alert('Invite sent', `Buddy request sent to @${username}.`);
+      setInviteUsername('');
+      await fetchLeaderboard();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      Alert.alert('Error', message);
+    } finally {
+      setInviteLoading(false);
+    }
+  }, [fetchLeaderboard, fetchProfile, inviteUsername, profile]);
 
   useEffect(() => {
     fetchLeaderboard();
-  }, []);
+  }, [fetchLeaderboard]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchLeaderboard();
+    }, [fetchLeaderboard]),
+  );
 
   const renderItem = ({ item, index }: { item: LeaderboardEntry; index: number }) => {
     const isCurrentUser = item.id === profile?.id;
-    const rankDisplay = index + 1;
+    const rankDisplay = item.global_rank || index + 1;
 
     return (
       <View style={[styles.row, isCurrentUser && styles.rowHighlight]}>
         <View style={styles.rankContainer}>
           {rankDisplay <= 3 ? (
-            <View style={[styles.medal, rankDisplay === 1 && styles.gold, rankDisplay === 2 && styles.silver, rankDisplay === 3 && styles.bronze]}>
+            <View
+              style={[
+                styles.medal,
+                rankDisplay === 1 && styles.gold,
+                rankDisplay === 2 && styles.silver,
+                rankDisplay === 3 && styles.bronze,
+              ]}
+            >
               <Text style={styles.medalText}>{rankDisplay}</Text>
             </View>
           ) : (
@@ -74,7 +215,7 @@ export default function LeaderboardScreen() {
             {item.display_name || item.username}
           </Text>
           <Text style={styles.meta}>
-            {t('profile.level', { level: item.level })} · {t('leaderboard.wins', { count: item.total_wins })}
+            {t('profile.level', { level: item.level })} - {t('leaderboard.wins', { count: item.total_wins })}
           </Text>
         </View>
         <View style={styles.statsCol}>
@@ -113,6 +254,32 @@ export default function LeaderboardScreen() {
         </TouchableOpacity>
       </View>
 
+      {tab === 'friends' && (
+        <View style={styles.inviteSection}>
+          <Text style={styles.inviteLabel}>Add friend by username</Text>
+          <View style={styles.inviteRow}>
+            <TextInput
+              style={styles.inviteInput}
+              value={inviteUsername}
+              onChangeText={setInviteUsername}
+              placeholder="@username"
+              placeholderTextColor={colors.textTertiary}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <TouchableOpacity
+              style={[styles.inviteButton, (inviteLoading || !inviteUsername.trim()) && styles.inviteButtonDisabled]}
+              onPress={handleInviteFriend}
+              disabled={inviteLoading || !inviteUsername.trim()}
+            >
+              <Text style={styles.inviteButtonText}>
+                {inviteLoading ? '...' : 'Add'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
       <FlatList
         data={entries}
         keyExtractor={(item) => item.id}
@@ -120,6 +287,22 @@ export default function LeaderboardScreen() {
         contentContainerStyle={styles.list}
         refreshControl={
           <RefreshControl refreshing={loading} onRefresh={fetchLeaderboard} />
+        }
+        ListEmptyComponent={
+          !loading ? (
+            <EmptyState
+              title={
+                tab === 'friends'
+                  ? t('leaderboard.no_friends_title')
+                  : t('leaderboard.no_global_title')
+              }
+              message={
+                tab === 'friends'
+                  ? t('leaderboard.no_friends_message')
+                  : t('leaderboard.no_global_message')
+              }
+            />
+          ) : null
         }
         showsVerticalScrollIndicator={false}
       />
@@ -171,6 +354,46 @@ const styles = StyleSheet.create({
   tabTextActive: {
     color: colors.textPrimary,
     fontWeight: '600',
+  },
+  inviteSection: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  inviteLabel: {
+    ...typography.caption1,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
+  },
+  inviteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  inviteInput: {
+    flex: 1,
+    height: 44,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.backgroundSecondary,
+    paddingHorizontal: spacing.md,
+    color: colors.textPrimary,
+    ...typography.body,
+  },
+  inviteButton: {
+    marginLeft: spacing.sm,
+    height: 44,
+    minWidth: 72,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  inviteButtonDisabled: {
+    opacity: 0.6,
+  },
+  inviteButtonText: {
+    ...typography.subhead,
+    color: colors.white,
+    fontWeight: '700',
   },
   list: {
     paddingHorizontal: spacing.lg,
@@ -253,3 +476,4 @@ const styles = StyleSheet.create({
     marginLeft: 2,
   },
 });
+

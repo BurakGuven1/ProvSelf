@@ -7,6 +7,7 @@ CREATE TABLE profiles (
   username TEXT UNIQUE NOT NULL,
   display_name TEXT,
   avatar_url TEXT,
+  push_token TEXT,
   locale TEXT DEFAULT 'en',
   timezone TEXT DEFAULT 'UTC',
   total_challenges INT DEFAULT 0,
