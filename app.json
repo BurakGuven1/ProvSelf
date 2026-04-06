@@ -43,7 +43,7 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "YOUR_EAS_PROJECT_ID"
+        "projectId": "b5fc1351-0517-4338-b916-32acd51b950e"
       },
       "supabaseUrl": "SET_IN_ENV",
       "supabaseAnonKey": "SET_IN_ENV",

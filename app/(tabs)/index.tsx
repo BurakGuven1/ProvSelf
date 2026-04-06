@@ -17,6 +17,7 @@ import { colors, typography, spacing, borderRadius } from '@/src/constants/theme
 import { useAuthStore } from '@/src/stores/auth-store';
 import { useChallengeStore } from '@/src/stores/challenge-store';
 import { useCoachStore } from '@/src/stores/coach-store';
+import { useStakeStore } from '@/src/stores/stake-store';
 import Card from '@/src/components/Card';
 import ProgressBar from '@/src/components/ProgressBar';
 import Button from '@/src/components/Button';
@@ -76,6 +77,7 @@ export default function HomeScreen() {
   const { profile } = useAuthStore();
   const { challenges, fetchChallenges, loading: challengesLoading } = useChallengeStore();
   const { messages, fetchMessages } = useCoachStore();
+  const { fetchBalance } = useStakeStore();
 
   const activeChallenges = challenges.filter((c) => c.status === 'active');
   const latestCoachMessage = messages.find((m) => !m.is_read);
@@ -84,18 +86,21 @@ export default function HomeScreen() {
   const onRefresh = useCallback(() => {
     fetchChallenges();
     fetchMessages();
+    fetchBalance();
   }, []);
 
   useEffect(() => {
     fetchChallenges();
     fetchMessages();
+    fetchBalance();
   }, []);
 
   useFocusEffect(
     useCallback(() => {
       fetchChallenges();
       fetchMessages();
-    }, [fetchChallenges, fetchMessages]),
+      fetchBalance();
+    }, [fetchChallenges, fetchMessages, fetchBalance]),
   );
 
   const renderHeader = () => (

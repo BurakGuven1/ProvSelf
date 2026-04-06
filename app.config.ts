@@ -53,7 +53,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ],
   extra: {
     eas: {
-      projectId: process.env.EAS_PROJECT_ID || 'YOUR_EAS_PROJECT_ID',
+      projectId: 'b5fc1351-0517-4338-b916-32acd51b950e',
     },
     supabaseUrl: process.env.SUPABASE_URL,
     supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
