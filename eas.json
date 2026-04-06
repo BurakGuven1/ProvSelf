@@ -8,21 +8,36 @@
       "distribution": "internal",
       "ios": {
         "simulator": false
+      },
+      "env": {
+        "SUPABASE_URL": "https://tclazlzlfkajyqbakoub.supabase.co",
+        "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRjbGF6bHpsZmthanlxYmFrb3ViIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5NTg4MjksImV4cCI6MjA5MDUzNDgyOX0.qGJW6Uobmq4Q6gfHoA4gMf4CwQxZZZDxjdA_5mFHzKs",
+        "REVENUECAT_API_KEY": "appl_cFXdcryXqNZONdJhtcfetzKISwi"
       }
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "SUPABASE_URL": "https://tclazlzlfkajyqbakoub.supabase.co",
+        "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRjbGF6bHpsZmthanlxYmFrb3ViIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5NTg4MjksImV4cCI6MjA5MDUzNDgyOX0.qGJW6Uobmq4Q6gfHoA4gMf4CwQxZZZDxjdA_5mFHzKs",
+        "REVENUECAT_API_KEY": "appl_cFXdcryXqNZONdJhtcfetzKISwi"
+      }
     },
     "production": {
       "ios": {
         "autoIncrement": true
+      },
+      "env": {
+        "SUPABASE_URL": "https://tclazlzlfkajyqbakoub.supabase.co",
+        "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRjbGF6bHpsZmthanlxYmFrb3ViIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5NTg4MjksImV4cCI6MjA5MDUzNDgyOX0.qGJW6Uobmq4Q6gfHoA4gMf4CwQxZZZDxjdA_5mFHzKs",
+        "REVENUECAT_API_KEY": "appl_cFXdcryXqNZONdJhtcfetzKISwi"
       }
     }
   },
   "submit": {
     "production": {
       "ios": {
-        "appleId": "YOUR_APPLE_ID",
+        "appleId": "burakguven351999@gmail.com",
         "ascAppId": "YOUR_APP_STORE_CONNECT_APP_ID",
         "appleTeamId": "YOUR_TEAM_ID"
       }

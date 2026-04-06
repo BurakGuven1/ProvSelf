@@ -48,8 +48,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         color: '#000000',
       },
     ],
-    // react-native-purchases plugin is only needed for EAS builds (not Expo Go)
-    // It will be added automatically when building with EAS
+    'expo-apple-authentication',
+    'react-native-purchases',
   ],
   extra: {
     eas: {
