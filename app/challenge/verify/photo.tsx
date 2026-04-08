@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Image, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -8,6 +8,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, typography, spacing, borderRadius } from '@/src/constants/theme';
+import { isAbstinenceChallenge } from '@/src/lib/challenge-rules';
 import { supabase } from '@/src/lib/supabase';
 import { useAuthStore } from '@/src/stores/auth-store';
 import { useChallengeStore } from '@/src/stores/challenge-store';
@@ -22,9 +23,44 @@ export default function PhotoVerifyScreen() {
   const { fetchChallengeById } = useChallengeStore();
 
   const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [photoBase64, setPhotoBase64] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
-  const [result, setResult] = useState<{ verified: boolean; reasoning: string } | null>(null);
+  const [challengeContext, setChallengeContext] = useState<{
+    title: string;
+    description: string | null;
+  } | null>(null);
+  const [result, setResult] = useState<{
+    verified: boolean;
+    reasoning: string;
+    missingEvidence: string[];
+    retryHint: string;
+  } | null>(null);
 
+  useEffect(() => {
+    let mounted = true;
+    if (!challengeId) return;
+
+    (async () => {
+      const challenge = await fetchChallengeById(challengeId);
+      if (!mounted || !challenge) return;
+      setChallengeContext({
+        title: challenge.title,
+        description: challenge.description,
+      });
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [challengeId, fetchChallengeById]);
+
+  const abstinenceChallenge = challengeContext
+    ? isAbstinenceChallenge(challengeContext.title, challengeContext.description)
+    : false;
+
+  // Camera-only capture. Gallery upload was removed in Phase 1.5-A as a basic
+  // anti-cheat measure: galleries make it trivial to submit reused / staged
+  // images. The user must capture proof in the moment with the rear camera.
   const takePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
@@ -34,31 +70,14 @@ export default function PhotoVerifyScreen() {
 
     const res = await ImagePicker.launchCameraAsync({
       mediaTypes: ['images'],
-      quality: 0.8,
+      quality: 0.6,
       allowsEditing: false,
+      base64: true,
     });
 
     if (!res.canceled && res.assets[0]) {
       setPhotoUri(res.assets[0].uri);
-      setResult(null);
-    }
-  };
-
-  const pickPhoto = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Photo library access is required.');
-      return;
-    }
-
-    const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 0.8,
-      allowsEditing: false,
-    });
-
-    if (!res.canceled && res.assets[0]) {
-      setPhotoUri(res.assets[0].uri);
+      setPhotoBase64(res.assets[0].base64 ?? null);
       setResult(null);
     }
   };
@@ -71,21 +90,33 @@ export default function PhotoVerifyScreen() {
       const challenge = await fetchChallengeById(challengeId);
       if (!challenge) throw new Error('Challenge not found');
 
-      // Upload photo to Supabase Storage
-      const fileName = `${session.user.id}/${challengeId}/${Date.now()}.jpg`;
-      const response = await fetch(photoUri);
-      const blob = await response.blob();
+      // Client-side fast path: if the challenge's stored policy hard-
+      // blocks photo verification, fail immediately without hitting the
+      // edge function. The server enforces the same rule (verify-photo →
+      // policyBlocksPhoto) so this is purely a UX optimization.
+      const policyHardBlock = challenge.verification_policy?.hard_block_methods ?? [];
+      if (Array.isArray(policyHardBlock) && policyHardBlock.includes('photo_ai')) {
+        Alert.alert(
+          t('verification.low_proof_blocked_title', {
+            defaultValue: 'Verification Method Blocked',
+          }),
+          t('verification.low_proof_blocked_message', {
+            defaultValue:
+              'This challenge requires a different verification method. Please choose the recommended option.',
+          }),
+        );
+        setVerifying(false);
+        return;
+      }
 
-      const { error: uploadError } = await supabase.storage
-        .from('proof-photos')
-        .upload(fileName, blob, { contentType: 'image/jpeg' });
+      // ImagePicker provides base64 directly via `base64: true` — this avoids
+      // any expo-file-system round-trip, which has been unreliable in Expo Go.
+      console.log('[verify-photo] base64 length', photoBase64?.length ?? 0);
+      if (!photoBase64) {
+        throw new Error('Photo has no base64 data. Please retake the photo.');
+      }
 
-      // Get public URL (even if upload fails in dev, continue with AI verification)
-      const { data: urlData } = supabase.storage
-        .from('proof-photos')
-        .getPublicUrl(fileName);
-
-      // Call AI verification edge function
+      // Call AI verification edge function with base64 inline
       const { data: aiResult, error: aiError } = await supabase.functions.invoke(
         'verify-photo',
         {
@@ -93,41 +124,114 @@ export default function PhotoVerifyScreen() {
             challenge_id: challengeId,
             challenge_title: challenge.title,
             challenge_description: challenge.description,
-            photo_url: urlData?.publicUrl,
+            photo_base64: photoBase64,
+            photo_media_type: 'image/jpeg',
             date: format(new Date(), 'yyyy-MM-dd'),
           },
         }
       );
 
+      if (aiError) {
+        console.error('[verify-photo] function invocation failed:', aiError);
+        throw new Error(`AI verification failed: ${aiError.message}`);
+      }
+      const policyCode =
+        typeof aiResult?.policy_code === 'string' ? aiResult.policy_code : '';
+      const legacyError =
+        typeof aiResult?.error === 'string' ? aiResult.error : '';
+      const blocked = aiResult?.blocked === true;
+      if (
+        blocked ||
+        policyCode === 'photo_verification_blocked_by_policy' ||
+        policyCode === 'hydration_requires_healthkit' ||
+        legacyError === 'hydration_requires_healthkit'
+      ) {
+        const message =
+          typeof aiResult?.message === 'string'
+            ? aiResult.message
+            : "Hydration challenges can't be verified by photo. Please use Apple Health.";
+        const alertTitle =
+          policyCode === 'photo_verification_blocked_by_policy'
+            ? 'Verification method blocked'
+            : policyCode === 'hydration_requires_healthkit'
+              ? 'Use Apple Health for hydration'
+              : 'Verification blocked';
+        Alert.alert(alertTitle, message);
+        return;
+      }
+      if (legacyError) {
+        console.error('[verify-photo] function returned error:', aiResult);
+        throw new Error(
+          `AI verification failed: ${legacyError}${aiResult.details ? ` - ${aiResult.details}` : ''}`,
+        );
+      }
+
       const verified = aiResult?.verified ?? false;
       const reasoning = aiResult?.reasoning ?? 'Verification pending.';
+      // New structured fields from Phase 1.5-A. Both are optional — older
+      // server deployments will simply omit them and the client falls back
+      // to empty defaults.
+      const missingEvidence: string[] = Array.isArray(aiResult?.missing_evidence)
+        ? aiResult.missing_evidence.filter((x: unknown): x is string => typeof x === 'string')
+        : [];
+      const retryHint: string =
+        typeof aiResult?.retry_hint === 'string' ? aiResult.retry_hint : '';
 
-      setResult({ verified, reasoning });
+      setResult({ verified, reasoning, missingEvidence, retryHint });
 
-      // Save proof to database
-      await supabase.from('daily_proofs').insert({
-        challenge_id: challengeId,
-        user_id: session.user.id,
-        proof_date: format(new Date(), 'yyyy-MM-dd'),
-        verification_type: 'photo_ai',
-        photo_url: urlData?.publicUrl,
-        proof_data: { ai_result: aiResult },
-        ai_verification_result: verified,
-        ai_verification_reasoning: reasoning,
-        is_verified: verified,
-      });
+      // Save proof to database. Use upsert on (challenge_id, proof_date) so
+      // re-verification of a previously failed attempt overwrites the row
+      // instead of hitting the unique constraint.
+      const { error: proofError } = await supabase
+        .from('daily_proofs')
+        .upsert(
+          {
+            challenge_id: challengeId,
+            user_id: session.user.id,
+            proof_date: format(new Date(), 'yyyy-MM-dd'),
+            verification_type: 'photo_ai',
+            photo_url: null,
+            proof_data: { ai_result: aiResult },
+            ai_verification_result: verified,
+            ai_verification_reasoning: reasoning,
+            is_verified: verified,
+          },
+          { onConflict: 'challenge_id,proof_date' },
+        );
+      if (proofError) {
+        console.error('[verify-photo] saving proof failed:', proofError);
+        throw new Error(`Saving proof failed: ${proofError.message}`);
+      }
 
       if (verified) {
-        await supabase
-          .from('challenges')
-          .update({ completed_days: challenge.completed_days + 1 })
-          .eq('id', challenge.id);
+        // Race-safe recompute: derive completed_days from the set of
+        // verified daily_proofs rows for this challenge instead of doing
+        // a `+ 1` increment off a possibly-stale local snapshot. Two
+        // concurrent verifications (multi-device, retry, etc.) would
+        // otherwise double-count.
+        const { count: verifiedCount, error: countError } = await supabase
+          .from('daily_proofs')
+          .select('id', { count: 'exact', head: true })
+          .eq('challenge_id', challenge.id)
+          .eq('is_verified', true);
+
+        if (!countError && typeof verifiedCount === 'number') {
+          await supabase
+            .from('challenges')
+            .update({
+              completed_days: verifiedCount,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', challenge.id);
+        }
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       }
-    } catch {
-      Alert.alert(t('common.error'), t('common.retry'));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('[verify-photo] submitProof error:', message);
+      Alert.alert(t('common.error'), message);
     } finally {
       setVerifying(false);
     }
@@ -137,7 +241,14 @@ export default function PhotoVerifyScreen() {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>{t('verification.take_photo')}</Text>
-        <Text style={styles.subtitle}>{t('verification.photo_instructions')}</Text>
+        <Text style={styles.subtitle}>
+          {abstinenceChallenge
+            ? t('verification.abstinence_photo_instructions', {
+                defaultValue:
+                  'For abstinence challenges, submit a live selfie with your face visible as an intentional daily check-in.',
+              })
+            : t('verification.photo_instructions')}
+        </Text>
       </View>
 
       <View style={styles.content}>
@@ -160,6 +271,14 @@ export default function PhotoVerifyScreen() {
                   {result.verified ? t('verification.photo_verified') : t('verification.photo_rejected')}
                 </Text>
                 <Text style={styles.reasoningText}>{result.reasoning}</Text>
+                {/* Phase 1.5-A: surface actionable retry hint when present
+                    (most useful on rejection but harmless on success). */}
+                {result.retryHint.length > 0 && (
+                  <View style={styles.retryHintRow}>
+                    <Ionicons name="bulb-outline" size={16} color={colors.textSecondary} />
+                    <Text style={styles.retryHintText}>{result.retryHint}</Text>
+                  </View>
+                )}
               </Card>
             )}
           </View>
@@ -176,21 +295,22 @@ export default function PhotoVerifyScreen() {
       <View style={styles.footer}>
         {!result && (
           <>
+            {/* Camera-only capture (Phase 1.5-A anti-cheat). Gallery upload
+                was removed — proof must be captured live. */}
             <View style={styles.photoButtons}>
               <Button
-                title="Camera"
+                title={photoUri ? 'Retake' : 'Take Photo'}
                 onPress={takePhoto}
                 variant={photoUri ? 'outline' : 'primary'}
                 size="lg"
-                icon={<Ionicons name="camera" size={20} color={photoUri ? colors.textPrimary : colors.white} />}
-              />
-              <View style={{ width: spacing.md }} />
-              <Button
-                title="Library"
-                onPress={pickPhoto}
-                variant="outline"
-                size="lg"
-                icon={<Ionicons name="images" size={20} color={colors.textPrimary} />}
+                fullWidth
+                icon={
+                  <Ionicons
+                    name="camera"
+                    size={20}
+                    color={photoUri ? colors.textPrimary : colors.white}
+                  />
+                }
               />
             </View>
             {photoUri && (
@@ -214,6 +334,7 @@ export default function PhotoVerifyScreen() {
                 router.back();
               } else {
                 setPhotoUri(null);
+                setPhotoBase64(null);
                 setResult(null);
               }
             }}
@@ -285,6 +406,19 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: spacing.sm,
   },
+  retryHintRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    gap: spacing.xs,
+  },
+  retryHintText: {
+    ...typography.footnote,
+    color: colors.textSecondary,
+    flex: 1,
+    fontStyle: 'italic',
+  },
   placeholderContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -309,8 +443,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   photoButtons: {
-    flexDirection: 'row',
-    justifyContent: 'center',
+    width: '100%',
     marginBottom: spacing.md,
   },
   submitSection: {
@@ -320,3 +453,7 @@ const styles = StyleSheet.create({
     height: spacing.sm,
   },
 });
+
+
+
+
