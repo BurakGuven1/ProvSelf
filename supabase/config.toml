@@ -1,0 +1,6 @@
+project_id = "tclazlzlfkajyqbakoub"
+
+# RevenueCat webhook — must skip Supabase JWT verification.
+# Authentication is handled inside the function via REVENUECAT_WEBHOOK_SECRET.
+[functions.validate-purchase]
+verify_jwt = false

@@ -8,9 +8,11 @@ import type {
   ChallengeStatus,
   DailyProof,
   Profile,
+  ProofClass,
   StakeBalance,
-  VerificationType,
   VerificationConfig,
+  VerificationPolicy,
+  VerificationType,
 } from '@/src/types/database';
 
 const FIRST_CHALLENGE_BONUS = 200;
@@ -26,6 +28,7 @@ type StakeSettlementSnapshot = Pick<
 >;
 type DailyProofSnapshot = Pick<DailyProof, 'proof_date' | 'is_verified'>;
 type ChallengeProofRow = Pick<DailyProof, 'challenge_id' | 'proof_date' | 'is_verified'>;
+type PenaltyProofRow = Pick<DailyProof, 'proof_data'>;
 
 interface CreateChallengeInput {
   title: string;
@@ -39,6 +42,11 @@ interface CreateChallengeInput {
   stake_cents: number;
   verification_type: VerificationType;
   verification_config: VerificationConfig | null;
+  // Phase 1.5-B: populated by the classify-challenge edge function at
+  // create time. Nullable for forward compatibility with any legacy path
+  // that might skip classification (e.g. seed scripts).
+  proof_class: ProofClass | null;
+  verification_policy: VerificationPolicy | null;
   status: 'active';
   completed_days: number;
   failed_days: number;
@@ -64,6 +72,24 @@ async function getCurrentUserId(): Promise<string | null> {
 
 function computeLevelFromXp(xp: number): number {
   return Math.max(1, Math.floor(xp / 1000) + 1);
+}
+
+function isMissingProofColumnsError(err: unknown): boolean {
+  const code = typeof (err as { code?: unknown })?.code === 'string'
+    ? (err as { code: string }).code
+    : '';
+  const message = typeof (err as { message?: unknown })?.message === 'string'
+    ? (err as { message: string }).message.toLowerCase()
+    : '';
+
+  if (code === '42703') return true; // undefined_column
+
+  const mentionsProofColumns =
+    message.includes('proof_class') || message.includes('verification_policy');
+  const missingColumnHint =
+    message.includes('column') && message.includes('does not exist');
+
+  return mentionsProofColumns && missingColumnHint;
 }
 
 function getChallengeProgress(
@@ -149,11 +175,40 @@ async function getStakeBalanceForUser(userId: string): Promise<StakeSettlementSn
   return inserted as StakeSettlementSnapshot;
 }
 
+async function getManualPenaltyFromProofs(challengeId: string): Promise<number> {
+  const { data, error } = await supabase
+    .from('daily_proofs')
+    .select('proof_data')
+    .eq('challenge_id', challengeId)
+    .eq('is_verified', true);
+
+  if (error || !data) return 0;
+
+  let total = 0;
+  for (const row of data as PenaltyProofRow[]) {
+    const proofData = row.proof_data as Record<string, unknown> | null;
+    if (!proofData || proofData.manual_override !== true) continue;
+    const penalty = proofData.penalty_cents;
+    if (typeof penalty === 'number' && Number.isFinite(penalty) && penalty > 0) {
+      total += Math.floor(penalty);
+    }
+  }
+  return Math.max(0, total);
+}
+
 async function settleChallengeOutcome(
   challenge: Challenge,
   finalStatus: FinalChallengeStatus,
   completedDays: number,
 ) {
+  let manualPenalty = Math.max(0, challenge.manual_override_penalty_cents ?? 0);
+  // Backward compatibility: if migration 00005 isn't applied yet, penalty
+  // column may be absent/always 0. Reconstruct from verified no-proof rows.
+  if (manualPenalty === 0) {
+    manualPenalty = await getManualPenaltyFromProofs(challenge.id);
+  }
+  const cappedManualPenalty = Math.min(challenge.stake_cents, manualPenalty);
+
   const xpEarned =
     finalStatus === 'completed_success'
       ? Math.round(challenge.duration_days * 10 + challenge.stake_cents / 10)
@@ -179,13 +234,15 @@ async function settleChallengeOutcome(
   if (finalStatus === 'completed_success') {
     const nextWins = profileSnapshot.total_wins + 1;
     const isFirstWin = nextWins === 1;
-    const returnedTokens = challenge.stake_cents + (isFirstWin ? FIRST_CHALLENGE_BONUS : 0);
+    const principalReturned = Math.max(0, challenge.stake_cents - cappedManualPenalty);
+    const returnedTokens = principalReturned + (isFirstWin ? FIRST_CHALLENGE_BONUS : 0);
 
     const { error: stakeError } = await supabase
       .from('stake_balances')
       .update({
         balance_cents: stakeBalance.balance_cents + returnedTokens,
         total_returned_cents: stakeBalance.total_returned_cents + returnedTokens,
+        total_forfeited_cents: stakeBalance.total_forfeited_cents + cappedManualPenalty,
         updated_at: nowIso,
       })
       .eq('id', stakeBalance.id);
@@ -199,6 +256,7 @@ async function settleChallengeOutcome(
         total_wins: nextWins,
         current_streak: nextCurrentStreak,
         longest_streak: Math.max(profileSnapshot.longest_streak, nextCurrentStreak),
+        total_lost_cents: profileSnapshot.total_lost_cents + cappedManualPenalty,
         xp: nextXp,
         level: computeLevelFromXp(nextXp),
         updated_at: nowIso,
@@ -368,14 +426,33 @@ export const useChallengeStore = create<ChallengeState>((set, get) => ({
 
     set({ loading: true, error: null });
     try {
-      const { data, error } = await supabase
+      const fullPayload = {
+        user_id: userId,
+        ...input,
+      };
+
+      let { data, error } = await supabase
         .from('challenges')
-        .insert({
-          user_id: userId,
-          ...input,
-        })
+        .insert(fullPayload)
         .select()
         .single();
+
+      // Forward/backward compatibility guard:
+      // if the DB migration that adds proof columns isn't applied yet,
+      // retry once without those additive fields instead of failing hard.
+      if (error && isMissingProofColumnsError(error)) {
+        console.warn('[challenge-store] proof columns missing, retrying legacy insert');
+        const { proof_class: _pc, verification_policy: _vp, ...legacyInput } = input;
+        ({ data, error } = await supabase
+          .from('challenges')
+          .insert({
+            user_id: userId,
+            ...legacyInput,
+          })
+          .select()
+          .single());
+      }
+
       if (error) throw error;
       const challenge = data as Challenge;
       set({ challenges: [challenge, ...get().challenges] });
