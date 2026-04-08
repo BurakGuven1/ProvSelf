@@ -29,8 +29,12 @@ function sanitizeUsername(raw: unknown): string | null {
   return normalized.slice(0, 24);
 }
 
+function autoUsernameFor(userId: string): string {
+  return `user_${userId.slice(0, 8)}`;
+}
+
 function buildUsernameCandidates(userId: string, metadataUsername: unknown): string[] {
-  const fallback = `user_${userId.slice(0, 8)}`;
+  const fallback = autoUsernameFor(userId);
   const sanitized = sanitizeUsername(metadataUsername);
   const candidates = [
     sanitized,
@@ -79,12 +83,29 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         throw new Error('No identity token returned from Apple');
       }
 
+      // Apple only returns fullName on the FIRST sign-in for this app.
+      // Capture it now so fetchProfile can seed display_name from it.
+      const fullNameParts = [
+        credential.fullName?.givenName,
+        credential.fullName?.familyName,
+      ].filter((part): part is string => typeof part === 'string' && part.trim().length > 0);
+      const fullName = fullNameParts.join(' ').trim() || null;
+
       const { data, error } = await supabase.auth.signInWithIdToken({
         provider: 'apple',
         token: credential.identityToken,
         nonce: rawNonce,
       });
       if (error) throw error;
+
+      // Persist Apple-supplied name to user_metadata so it survives across sessions.
+      if (fullName && data.session) {
+        try {
+          await supabase.auth.updateUser({ data: { full_name: fullName } });
+        } catch {
+          // Non-fatal — fetchProfile will still work without the name.
+        }
+      }
 
       set({ session: data.session });
       if (data.session) {
@@ -200,7 +221,32 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         .maybeSingle();
       if (error) throw error;
 
+      const metadataFullName =
+        typeof activeSession?.user?.user_metadata?.full_name === 'string'
+          ? (activeSession.user.user_metadata.full_name as string).trim() || null
+          : null;
+
       if (data) {
+        // Self-heal: if display_name is missing/auto-generated and Apple gave
+        // us a real fullName via metadata, populate it. Also clear the stale
+        // `user_xxxxxxxx` display_name left over from older signups.
+        const autoName = autoUsernameFor(userId);
+        const isStaleAutoDisplay = data.display_name === autoName;
+        const wantsSeed = metadataFullName && !data.display_name;
+
+        if (isStaleAutoDisplay || wantsSeed) {
+          const nextDisplayName = metadataFullName ?? null;
+          const { data: cleaned, error: cleanError } = await supabase
+            .from('profiles')
+            .update({ display_name: nextDisplayName, updated_at: new Date().toISOString() })
+            .eq('id', userId)
+            .select('*')
+            .single();
+          if (!cleanError && cleaned) {
+            set({ profile: cleaned as Profile });
+            return;
+          }
+        }
         set({ profile: data as Profile });
         return;
       }
@@ -216,7 +262,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           .insert({
             id: userId,
             username: usernameCandidate,
-            display_name: usernameCandidate,
+            display_name: metadataFullName,
             locale: 'en',
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
           })

@@ -1,4 +1,3 @@
-import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import Purchases, {
   LOG_LEVEL,
@@ -10,8 +9,14 @@ import Purchases, {
 
 export type { CustomerInfo, PurchasesOfferings, PurchasesPackage, PurchasesStoreProduct };
 
-const API_KEY = Constants.expoConfig?.extra?.revenueCatApiKey ?? '';
-const isExpoGo = Constants.appOwnership === 'expo';
+const extra =
+  Constants.expoConfig?.extra ??
+  (Constants as unknown as { manifest2?: { extra?: Record<string, unknown> } }).manifest2?.extra ??
+  (Constants as unknown as { manifest?: { extra?: Record<string, unknown> } }).manifest?.extra ??
+  {};
+const API_KEY = typeof extra.revenueCatApiKey === 'string' ? extra.revenueCatApiKey : '';
+// `storeClient` = Expo Go. TestFlight/App Store builds should not be blocked.
+const isExpoGo = Constants.executionEnvironment === 'storeClient';
 
 let isConfigured = false;
 

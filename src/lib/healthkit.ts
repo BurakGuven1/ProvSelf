@@ -28,6 +28,7 @@ const PERMISSIONS = {
       'ActiveEnergyBurned',
       'SleepAnalysis',
       'AppleExerciseTime',
+      'Water',
     ],
     write: [],
   },
@@ -168,6 +169,8 @@ export async function getMetricValue(metric: string, date: Date): Promise<number
       return getSleepHours(date);
     case 'exercise_minutes':
       return getExerciseMinutes(date);
+    case 'water_ml':
+      return getWaterIntakeMl(date);
     default:
       console.warn(`[HealthKit] Unknown metric: ${metric}`);
       return 0;
@@ -194,6 +197,31 @@ async function getExerciseMinutes(date: Date): Promise<number> {
         }
         const total = (results ?? []).reduce((sum, r) => sum + (r.value ?? 0), 0);
         resolve(Math.round(total));
+      },
+    );
+  });
+}
+
+async function getWaterIntakeMl(date: Date): Promise<number> {
+  const hk = getHealthKit();
+  if (!hk || !isInitialized) return 0;
+
+  return new Promise<number>((resolve) => {
+    hk.getWater(
+      { date: date.toISOString(), includeManuallyAdded: true },
+      (err: any, results: { value?: number }) => {
+        if (err) {
+          console.error('[HealthKit] getWater error:', err);
+          resolve(0);
+          return;
+        }
+        // react-native-health getWater returns liters.
+        const liters = Number(results?.value ?? 0);
+        if (!Number.isFinite(liters)) {
+          resolve(0);
+          return;
+        }
+        resolve(Math.round(liters * 1000));
       },
     );
   });
