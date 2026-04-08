@@ -13,8 +13,9 @@ import hi from '@/src/locales/hi.json';
 import ko from '@/src/locales/ko.json';
 import it from '@/src/locales/it.json';
 import es from '@/src/locales/es.json';
+import tr from '@/src/locales/tr.json';
 
-const SUPPORTED_LANGUAGES = ['en', 'de', 'fr', 'ja', 'zh', 'pt-BR', 'ru', 'hi', 'ko', 'it', 'es'] as const;
+const SUPPORTED_LANGUAGES = ['en', 'de', 'fr', 'ja', 'zh', 'pt-BR', 'ru', 'hi', 'ko', 'it', 'es', 'tr'] as const;
 type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 
 const DEFAULT_LANGUAGE: SupportedLanguage = 'en';
@@ -51,6 +52,7 @@ i18n.use(initReactI18next).init({
     ko: { translation: ko },
     it: { translation: it },
     es: { translation: es },
+    tr: { translation: tr },
   },
   lng: getDeviceLanguage(),
   fallbackLng: DEFAULT_LANGUAGE,

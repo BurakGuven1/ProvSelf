@@ -4,7 +4,7 @@ export interface Profile {
   display_name: string | null;
   avatar_url: string | null;
   push_token: string | null;
-  locale: 'en' | 'de' | 'fr' | 'ja' | 'zh' | 'pt-BR' | 'ru' | 'hi' | 'ko' | 'it' | 'es';
+  locale: 'en' | 'de' | 'fr' | 'ja' | 'zh' | 'pt-BR' | 'ru' | 'hi' | 'ko' | 'it' | 'es' | 'tr';
   timezone: string;
   total_challenges: number;
   total_wins: number;
@@ -46,6 +46,20 @@ export type ChallengeFrequency = 'daily' | 'weekly';
 export type ChallengeStatus = 'active' | 'completed_success' | 'completed_fail' | 'cancelled';
 export type VerificationType = 'healthkit' | 'photo_ai' | 'buddy_verify';
 
+// Phase 1.5: proof classification.
+// `high`   = sensor-measurable (HealthKit) — full trust.
+// `medium` = single-photo proof of state acceptable (gym selfie, book page).
+// `low`    = behavioral/abstinence/accumulation — single photo INSUFFICIENT;
+//            requires HealthKit, multi check-in, or buddy verification.
+export type ProofClass = 'high' | 'medium' | 'low';
+
+export interface VerificationPolicy {
+  allowed_methods: VerificationType[];
+  hard_block_methods: VerificationType[];
+  min_evidence_count: number;
+  time_window_hours: number;
+}
+
 export interface HealthKitVerificationConfig {
   metric: string;
   target: number;
@@ -71,6 +85,14 @@ export interface Challenge {
   stake_cents: number;
   verification_type: VerificationType;
   verification_config: VerificationConfig | null;
+  // Phase 1.5: nullable until classifier (Phase 1.5-B) backfills them.
+  // Existing rows will read as null and the verify path falls back to legacy
+  // verification_type behavior. Do NOT make these required.
+  proof_class: ProofClass | null;
+  verification_policy: VerificationPolicy | null;
+  // Sum of per-day no-proof penalties applied during the challenge.
+  // Kept nullable/optional for compatibility with legacy rows.
+  manual_override_penalty_cents?: number | null;
   status: ChallengeStatus;
   completed_days: number;
   failed_days: number;

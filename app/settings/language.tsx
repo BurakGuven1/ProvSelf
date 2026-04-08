@@ -21,6 +21,7 @@ const LANGUAGE_LABELS: Record<SupportedLanguage, string> = {
   ko: '\ud55c\uad6d\uc5b4',
   it: 'Italiano',
   es: 'Espa\u00f1ol',
+  tr: 'T\u00fcrk\u00e7e',
 };
 
 export default function LanguageScreen() {
