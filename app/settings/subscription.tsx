@@ -9,6 +9,7 @@ import { colors, typography, spacing, borderRadius } from '@/src/constants/theme
 import {
   getOfferings,
   purchasePackage,
+  purchaseProduct,
   isRevenueCatConfigured,
   type PurchasesPackage,
 } from '@/src/lib/revenue-cat';
@@ -46,6 +47,28 @@ const IDENTIFIER_META: Record<string, { key: 'monthly' | 'yearly'; label: string
   provself_pro_yearly: { key: 'yearly', label: 'Yearly' },
 };
 
+function resolvePlanMeta(pkg: PurchasesPackage): { key: 'monthly' | 'yearly'; label: string } | null {
+  const packageIdentifier = pkg.identifier?.toLowerCase();
+  const productIdentifier = pkg.product.identifier?.toLowerCase();
+
+  if (packageIdentifier && IDENTIFIER_META[packageIdentifier]) {
+    return IDENTIFIER_META[packageIdentifier];
+  }
+  if (productIdentifier && IDENTIFIER_META[productIdentifier]) {
+    return IDENTIFIER_META[productIdentifier];
+  }
+
+  const packageTypeRaw = (pkg as unknown as { packageType?: string }).packageType?.toUpperCase();
+  if (packageTypeRaw === 'MONTHLY') {
+    return { key: 'monthly', label: 'Monthly' };
+  }
+  if (packageTypeRaw === 'ANNUAL' || packageTypeRaw === 'YEARLY') {
+    return { key: 'yearly', label: 'Yearly' };
+  }
+
+  return null;
+}
+
 function computeMonthlyPrice(yearlyPrice: number): string {
   return `$${(yearlyPrice / 12).toFixed(2)}/mo`;
 }
@@ -73,11 +96,11 @@ export default function SubscriptionScreen() {
         if (offerings?.current?.availablePackages) {
           const realPlans: SubPlan[] = [];
           for (const pkg of offerings.current.availablePackages) {
-            const meta = IDENTIFIER_META[pkg.identifier];
+            const meta = resolvePlanMeta(pkg);
             if (meta) {
               realPlans.push({
                 key: meta.key,
-                identifier: pkg.identifier,
+                identifier: pkg.product.identifier,
                 label: meta.label,
                 price: meta.key === 'yearly'
                   ? `${pkg.product.priceString}/yr`
@@ -104,14 +127,23 @@ export default function SubscriptionScreen() {
   const handleSubscribe = async () => {
     if (!selected) return;
 
-    if (!selected.rcPackage) {
-      Alert.alert('Not Available', 'Subscriptions require an EAS development build. This feature is not available in Expo Go.');
+    if (!isRevenueCatConfigured()) {
+      Alert.alert(
+        'Not Available',
+        'Subscriptions are not available right now. Please update to the latest build and try again.',
+      );
       return;
     }
 
     setPurchasing(true);
     try {
-      await purchasePackage(selected.rcPackage);
+      if (selected.rcPackage) {
+        await purchasePackage(selected.rcPackage);
+      } else {
+        // Offerings can fail to map by package identifier in some RC setups.
+        // Fallback to direct product purchase by App Store product id.
+        await purchaseProduct(selected.identifier);
+      }
       await checkSubscription();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert('Welcome to Pro!', 'Your subscription is now active.', [

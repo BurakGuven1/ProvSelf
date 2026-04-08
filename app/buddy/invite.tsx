@@ -17,8 +17,10 @@ export default function BuddyInviteScreen() {
   const [username, setUsername] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const normalizedUsername = username.trim().replace(/^@+/, '').toLowerCase();
+
   const handleInvite = async () => {
-    if (!username.trim()) return;
+    if (!normalizedUsername) return;
 
     let currentUserId = profile?.id ?? session?.user?.id;
     if (!currentUserId) {
@@ -35,7 +37,7 @@ export default function BuddyInviteScreen() {
       const { data: buddy, error: findError } = await supabase
         .from('profiles')
         .select('id')
-        .eq('username', username.trim().toLowerCase())
+        .eq('username', normalizedUsername)
         .single();
 
       if (findError || !buddy) {
@@ -50,7 +52,7 @@ export default function BuddyInviteScreen() {
 
       if (error) throw error;
 
-      Alert.alert('Invite sent!', `Buddy request sent to @${username.trim()}.`, [
+      Alert.alert('Invite sent!', `Buddy request sent to @${normalizedUsername}.`, [
         { text: 'OK', onPress: () => router.back() },
       ]);
     } catch {
@@ -80,7 +82,7 @@ export default function BuddyInviteScreen() {
           title="Send Invite"
           onPress={handleInvite}
           loading={loading}
-          disabled={!username.trim()}
+          disabled={!normalizedUsername}
           size="lg"
           fullWidth
         />

@@ -10,6 +10,7 @@ import {
   TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -28,7 +29,12 @@ interface BuddyPairRow {
 const LEADERBOARD_FIELDS =
   'id, username, display_name, avatar_url, current_streak, longest_streak, total_wins, xp, level';
 
+function sanitizeUsernameInput(input: string): string {
+  return input.trim().replace(/^@+/, '').toLowerCase();
+}
+
 export default function LeaderboardScreen() {
+  const router = useRouter();
   const { t } = useTranslation();
   const { profile, fetchProfile } = useAuthStore();
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
@@ -36,6 +42,7 @@ export default function LeaderboardScreen() {
   const [tab, setTab] = useState<'global' | 'friends'>('global');
   const [inviteUsername, setInviteUsername] = useState('');
   const [inviteLoading, setInviteLoading] = useState(false);
+  const [pendingRequestCount, setPendingRequestCount] = useState(0);
 
   const fetchGlobalLeaderboard = useCallback(async () => {
     const { data, error } = await supabase
@@ -83,6 +90,22 @@ export default function LeaderboardScreen() {
     return (data ?? []).map((d, i) => ({ ...d, global_rank: i + 1 } as LeaderboardEntry));
   }, [profile?.id]);
 
+  const fetchPendingRequestCount = useCallback(async () => {
+    if (!profile?.id) {
+      setPendingRequestCount(0);
+      return;
+    }
+    const { count, error } = await supabase
+      .from('buddy_pairs')
+      .select('id', { head: true, count: 'exact' })
+      .eq('buddy_id', profile.id)
+      .eq('status', 'pending');
+    if (error) {
+      return;
+    }
+    setPendingRequestCount(count ?? 0);
+  }, [profile?.id]);
+
   const fetchLeaderboard = useCallback(async () => {
     setLoading(true);
     try {
@@ -90,16 +113,17 @@ export default function LeaderboardScreen() {
         ? await fetchGlobalLeaderboard()
         : await fetchFriendsLeaderboard();
       setEntries(leaderboard);
+      await fetchPendingRequestCount();
     } catch {
       setEntries([]);
     } finally {
       setLoading(false);
     }
-  }, [fetchFriendsLeaderboard, fetchGlobalLeaderboard, tab]);
+  }, [fetchFriendsLeaderboard, fetchGlobalLeaderboard, fetchPendingRequestCount, tab]);
 
   const handleInviteFriend = useCallback(async () => {
     const myProfile = profile;
-    const username = inviteUsername.trim().toLowerCase();
+    const username = sanitizeUsernameInput(inviteUsername);
 
     if (!myProfile?.id) {
       await fetchProfile();
@@ -233,6 +257,17 @@ export default function LeaderboardScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.title}>{t('leaderboard.title')}</Text>
+        <TouchableOpacity
+          style={styles.headerRequestBtn}
+          onPress={() => router.push('/buddy/requests')}
+        >
+          <Ionicons name="mail-unread-outline" size={20} color={colors.textPrimary} />
+          {pendingRequestCount > 0 && (
+            <View style={styles.headerRequestBadge}>
+              <Text style={styles.headerRequestBadgeText}>{pendingRequestCount > 9 ? '9+' : pendingRequestCount}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
       <View style={styles.tabs}>
@@ -256,21 +291,35 @@ export default function LeaderboardScreen() {
 
       {tab === 'friends' && (
         <View style={styles.inviteSection}>
+          <View style={styles.requestsRow}>
+            <TouchableOpacity
+              style={styles.requestsButton}
+              onPress={() => router.push('/buddy/requests')}
+            >
+              <Ionicons name="mail-unread-outline" size={16} color={colors.accent} />
+              <Text style={styles.requestsButtonText}>
+                Pending requests{pendingRequestCount > 0 ? ` (${pendingRequestCount})` : ''}
+              </Text>
+            </TouchableOpacity>
+          </View>
           <Text style={styles.inviteLabel}>Add friend by username</Text>
           <View style={styles.inviteRow}>
             <TextInput
               style={styles.inviteInput}
               value={inviteUsername}
               onChangeText={setInviteUsername}
-              placeholder="@username"
+              placeholder="username"
               placeholderTextColor={colors.textTertiary}
               autoCapitalize="none"
               autoCorrect={false}
             />
             <TouchableOpacity
-              style={[styles.inviteButton, (inviteLoading || !inviteUsername.trim()) && styles.inviteButtonDisabled]}
+              style={[
+                styles.inviteButton,
+                (inviteLoading || !sanitizeUsernameInput(inviteUsername)) && styles.inviteButtonDisabled,
+              ]}
               onPress={handleInviteFriend}
-              disabled={inviteLoading || !inviteUsername.trim()}
+              disabled={inviteLoading || !sanitizeUsernameInput(inviteUsername)}
             >
               <Text style={styles.inviteButtonText}>
                 {inviteLoading ? '...' : 'Add'}
@@ -316,9 +365,39 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     paddingBottom: spacing.sm,
+  },
+  headerRequestBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.backgroundSecondary,
+  },
+  headerRequestBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.danger,
+    paddingHorizontal: 3,
+  },
+  headerRequestBadgeText: {
+    ...typography.caption2,
+    color: colors.white,
+    fontWeight: '700',
+    fontSize: 10,
+    lineHeight: 12,
   },
   title: {
     ...typography.largeTitle,
@@ -358,6 +437,24 @@ const styles = StyleSheet.create({
   inviteSection: {
     marginHorizontal: spacing.lg,
     marginBottom: spacing.md,
+  },
+  requestsRow: {
+    marginBottom: spacing.sm,
+  },
+  requestsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: colors.backgroundSecondary,
+    borderRadius: borderRadius.full,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    gap: spacing.xs,
+  },
+  requestsButtonText: {
+    ...typography.footnote,
+    color: colors.accent,
+    fontWeight: '700',
   },
   inviteLabel: {
     ...typography.caption1,

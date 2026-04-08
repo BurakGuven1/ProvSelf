@@ -19,6 +19,7 @@ import { colors, typography, spacing, borderRadius } from '@/src/constants/theme
 import { useAuthStore } from '@/src/stores/auth-store';
 import { useStakeStore } from '@/src/stores/stake-store';
 import { useChallengeStore } from '@/src/stores/challenge-store';
+import { useSubscriptionStore } from '@/src/stores/subscription-store';
 import Avatar from '@/src/components/Avatar';
 import Card from '@/src/components/Card';
 import Button from '@/src/components/Button';
@@ -116,6 +117,7 @@ export default function ProfileScreen() {
   } = useAuthStore();
   const { balance, fetchBalance } = useStakeStore();
   const { challenges, fetchChallenges, loading: challengesLoading } = useChallengeStore();
+  const { isPro } = useSubscriptionStore();
 
   const [initializing, setInitializing] = useState(true);
   const [editingProfile, setEditingProfile] = useState(false);
@@ -305,6 +307,28 @@ export default function ProfileScreen() {
               variant="primary"
               size="sm"
             />
+          </View>
+
+          <View style={styles.quickLinksRow}>
+            <TouchableOpacity
+              style={styles.quickLinkBtn}
+              onPress={() => router.push('/buddy/requests')}
+            >
+              <Ionicons name="mail-unread-outline" size={15} color={colors.accent} />
+              <Text style={styles.quickLinkText}>Buddy Requests</Text>
+            </TouchableOpacity>
+
+            {!isPro && (
+              <TouchableOpacity
+                style={[styles.quickLinkBtn, styles.quickLinkProBtn]}
+                onPress={() => router.push('/settings/subscription')}
+              >
+                <Ionicons name="star" size={15} color={colors.stakeGoldDark} />
+                <Text style={[styles.quickLinkText, styles.quickLinkProText]}>
+                  {t('settings.upgrade_to_pro')}
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         </Card>
 
@@ -521,6 +545,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  quickLinksRow: {
+    marginTop: spacing.sm,
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  quickLinkBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    backgroundColor: colors.backgroundSecondary,
+    borderRadius: borderRadius.md,
+    paddingVertical: spacing.sm,
+  },
+  quickLinkProBtn: {
+    backgroundColor: '#FFF8E1',
+    borderWidth: 1,
+    borderColor: '#F1D99B',
+  },
+  quickLinkText: {
+    ...typography.footnote,
+    color: colors.accent,
+    fontWeight: '700',
+  },
+  quickLinkProText: {
+    color: colors.stakeGoldDark,
   },
   balanceLabel: {
     ...typography.footnote,

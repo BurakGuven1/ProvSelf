@@ -69,6 +69,8 @@ const TEMPLATES: ChallengeTemplate[] = [
     title: 'Drink 8 Glasses of Water',
     category: 'health',
     icon: 'water',
+    metric: 'water_ml',
+    target: 2000,
     description: 'Stay hydrated — drink at least 8 glasses of water daily.',
     difficulty: 'easy',
     defaultDuration: 7,

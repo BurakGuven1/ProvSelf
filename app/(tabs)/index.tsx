@@ -11,13 +11,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useFocusEffect } from '@react-navigation/native';
-import { differenceInDays } from 'date-fns';
+import { differenceInCalendarDays, parseISO } from 'date-fns';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, typography, spacing, borderRadius } from '@/src/constants/theme';
 import { useAuthStore } from '@/src/stores/auth-store';
 import { useChallengeStore } from '@/src/stores/challenge-store';
 import { useCoachStore } from '@/src/stores/coach-store';
 import { useStakeStore } from '@/src/stores/stake-store';
+import { useSubscriptionStore } from '@/src/stores/subscription-store';
 import Card from '@/src/components/Card';
 import ProgressBar from '@/src/components/ProgressBar';
 import Button from '@/src/components/Button';
@@ -35,7 +36,12 @@ function getGreeting(name: string, t: (key: string, opts?: Record<string, unknow
 function ChallengeCard({ challenge }: { challenge: Challenge }) {
   const router = useRouter();
   const { t } = useTranslation();
-  const daysLeft = differenceInDays(new Date(challenge.end_date), new Date());
+  // end_date is inclusive (last task day) → +1 so today counts as a day left.
+  // Use calendar-day comparison + parseISO to avoid UTC vs local-tz drift.
+  const daysLeft = Math.max(
+    0,
+    differenceInCalendarDays(parseISO(challenge.end_date), new Date()) + 1,
+  );
   const progress = challenge.required_completions > 0
     ? challenge.completed_days / challenge.required_completions
     : 0;
@@ -57,7 +63,7 @@ function ChallengeCard({ challenge }: { challenge: Challenge }) {
               total: challenge.duration_days,
             })}
             {' · '}
-            {t('home.days_left', { count: Math.max(0, daysLeft) })}
+            {t('home.days_left', { count: daysLeft })}
           </Text>
         </View>
         <StakeAmount cents={challenge.stake_cents} size="sm" />
@@ -78,6 +84,7 @@ export default function HomeScreen() {
   const { challenges, fetchChallenges, loading: challengesLoading } = useChallengeStore();
   const { messages, fetchMessages } = useCoachStore();
   const { fetchBalance } = useStakeStore();
+  const { isPro } = useSubscriptionStore();
 
   const activeChallenges = challenges.filter((c) => c.status === 'active');
   const latestCoachMessage = messages.find((m) => !m.is_read);
@@ -119,6 +126,25 @@ export default function HomeScreen() {
                 {latestCoachMessage.content}
               </Text>
             </View>
+          </View>
+        </Card>
+      )}
+
+      {!isPro && (
+        <Card style={styles.proCard} onPress={() => router.push('/settings/subscription')}>
+          <View style={styles.proRow}>
+            <View style={styles.proIcon}>
+              <Ionicons name="star" size={18} color={colors.stakeGoldDark} />
+            </View>
+            <View style={styles.proContent}>
+              <Text style={styles.proTitle}>{t('settings.upgrade_to_pro')}</Text>
+              <Text style={styles.proSubtitle}>
+                {t('settings.pro_cta_subtitle', {
+                  defaultValue: 'Unlock unlimited challenges and advanced AI coach features.',
+                })}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </View>
         </Card>
       )}
@@ -177,6 +203,37 @@ const styles = StyleSheet.create({
   coachCard: {
     backgroundColor: colors.backgroundSecondary,
     marginBottom: spacing.lg,
+  },
+  proCard: {
+    marginBottom: spacing.lg,
+    backgroundColor: '#FFF8E1',
+    borderWidth: 1,
+    borderColor: '#F1D99B',
+  },
+  proRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  proIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#FFE082',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.sm,
+  },
+  proContent: {
+    flex: 1,
+  },
+  proTitle: {
+    ...typography.headline,
+    color: colors.textPrimary,
+  },
+  proSubtitle: {
+    ...typography.caption1,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
   coachRow: {
     flexDirection: 'row',

@@ -33,7 +33,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     entitlements: {
       'com.apple.developer.healthkit': true,
       'com.apple.developer.healthkit.background-delivery': true,
-      'com.apple.developer.in-app-purchases': true,
     },
     config: {
       usesNonExemptEncryption: false,

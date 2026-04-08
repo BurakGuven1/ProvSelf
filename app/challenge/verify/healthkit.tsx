@@ -105,6 +105,16 @@ export default function HealthKitVerifyScreen() {
   const metric = config?.metric ?? 'steps';
   const isMetTarget = healthValue !== null && healthValue >= target;
 
+  const metricLabel = metric === 'water_ml'
+    ? 'water intake'
+    : metric.replace('_', ' ');
+  const valueDisplay = metric === 'water_ml'
+    ? `${healthValue?.toLocaleString() ?? 0} ml`
+    : `${healthValue?.toLocaleString() ?? 0}`;
+  const targetDisplay = metric === 'water_ml'
+    ? `${target.toLocaleString()} ml`
+    : target.toLocaleString();
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -135,11 +145,11 @@ export default function HealthKitVerifyScreen() {
                 />
               </View>
               <Text style={styles.valueText}>
-                {healthValue?.toLocaleString()}
+                {valueDisplay}
               </Text>
-              <Text style={styles.metricLabel}>{metric.replace('_', ' ')}</Text>
+              <Text style={styles.metricLabel}>{metricLabel}</Text>
               <View style={styles.targetRow}>
-                <Text style={styles.targetLabel}>Target: {target.toLocaleString()}</Text>
+                <Text style={styles.targetLabel}>Target: {targetDisplay}</Text>
               </View>
             </Card>
 
