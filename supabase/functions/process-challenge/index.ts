@@ -22,6 +22,9 @@ interface ChallengeRow {
   completed_days: number;
   failed_days: number;
   status: ChallengeStatus;
+  // Cumulative no-proof-day penalty bucket. Subtracted from the returned
+  // stake on success. Nullable for legacy rows from before migration 00005.
+  manual_override_penalty_cents: number | null;
 }
 
 interface ProofRow {
@@ -196,7 +199,20 @@ serve(async () => {
       if (finalStatus === 'completed_success') {
         const nextWins = profile.total_wins + 1;
         const isFirstWin = nextWins === 1;
-        const returnedAmount = finalizedChallengeRow.stake_cents + (isFirstWin ? FIRST_CHALLENGE_BONUS : 0);
+        // Apply the cumulative no-proof penalty against the principal,
+        // capped to the stake itself. The corresponding "lost" amount is
+        // booked to total_lost_cents below so the user's lifetime stats
+        // stay consistent with the per-challenge UI.
+        const rawPenalty = finalizedChallengeRow.manual_override_penalty_cents ?? 0;
+        const cappedPenalty = Math.min(
+          finalizedChallengeRow.stake_cents,
+          Math.max(0, rawPenalty),
+        );
+        const principalReturned = Math.max(
+          0,
+          finalizedChallengeRow.stake_cents - cappedPenalty,
+        );
+        const returnedAmount = principalReturned + (isFirstWin ? FIRST_CHALLENGE_BONUS : 0);
 
         await supabase.rpc('return_stake', {
           p_user_id: finalizedChallengeRow.user_id,
@@ -213,6 +229,7 @@ serve(async () => {
             total_wins: nextWins,
             current_streak: nextCurrentStreak,
             longest_streak: Math.max(profile.longest_streak, nextCurrentStreak),
+            total_lost_cents: profile.total_lost_cents + cappedPenalty,
             xp: nextXp,
             level: Math.max(1, Math.floor(nextXp / 1000) + 1),
             updated_at: new Date().toISOString(),
