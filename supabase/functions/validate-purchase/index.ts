@@ -1,5 +1,14 @@
 // Supabase Edge Function: validate-purchase
-// Validates RevenueCat webhook events and updates stake balances atomically
+// Validates RevenueCat webhook events and updates stake balances atomically.
+//
+// Auth: this function is exposed without Supabase JWT verification (see
+// supabase/config.toml [functions.validate-purchase] verify_jwt = false)
+// so RevenueCat can call it directly. To prevent forged requests pumping
+// credits into arbitrary user accounts, every request MUST present the
+// shared secret REVENUECAT_WEBHOOK_SECRET via the `Authorization: Bearer`
+// header that RevenueCat is configured to send. Idempotency on the unique
+// revenue_cat_transaction_id is a second line of defense — it stops
+// replays of the same event but does NOT stop forgery of new events.
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -22,17 +31,40 @@ const SUBSCRIPTION_PRODUCTS = new Set([
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
+// Constant-time string compare so a timing side channel can't be used to
+// guess the secret one byte at a time.
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i++) {
+    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return mismatch === 0;
+}
+
+function isAuthorized(req: Request): boolean {
+  if (!REVENUECAT_WEBHOOK_SECRET) {
+    // Misconfiguration: refuse rather than fail-open. The deployer must set
+    // this env var (`supabase secrets set REVENUECAT_WEBHOOK_SECRET=...`)
+    // and configure the matching value in RevenueCat's webhook settings.
+    console.error('[validate-purchase] REVENUECAT_WEBHOOK_SECRET not set — refusing all requests');
+    return false;
+  }
+  const header = req.headers.get('authorization') ?? req.headers.get('Authorization') ?? '';
+  // Accept either "Bearer <secret>" or the raw secret to be tolerant of
+  // RevenueCat dashboard configurations that don't include the prefix.
+  const candidate = header.startsWith('Bearer ') ? header.slice(7) : header;
+  return candidate.length > 0 && timingSafeEqual(candidate, REVENUECAT_WEBHOOK_SECRET);
+}
+
 serve(async (req: Request) => {
   try {
-    // Verify webhook authenticity
-    const authHeader = req.headers.get('Authorization');
-    if (REVENUECAT_WEBHOOK_SECRET && authHeader !== `Bearer ${REVENUECAT_WEBHOOK_SECRET}`) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: JSON_HEADERS,
-      });
+    if (!isAuthorized(req)) {
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized' }),
+        { status: 401, headers: JSON_HEADERS },
+      );
     }
-
     const body = await req.json();
     const event = body.event;
 
