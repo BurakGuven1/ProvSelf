@@ -38,6 +38,44 @@ function dateDiffInDays(start: string, end: string) {
   return Math.floor((endDate.getTime() - startDate.getTime()) / 86400000);
 }
 
+function getWeekSlotKey(startDate: string, proofDate: string): string {
+  const diff = dateDiffInDays(startDate, proofDate);
+  const index = Math.max(0, Math.floor(diff / 7));
+  return `w${index}`;
+}
+
+function countVerifiedSlots(
+  challenge: ChallengeRow,
+  proofs: ProofRow[],
+  boundaryEnd?: string,
+): number {
+  const end = boundaryEnd ?? challenge.end_date;
+  const slotKeys = new Set<string>();
+
+  for (const proof of proofs) {
+    if (!proof.is_verified) continue;
+    if (proof.proof_date < challenge.start_date || proof.proof_date > challenge.end_date) continue;
+    if (proof.proof_date > end) continue;
+
+    if (challenge.frequency === 'weekly') {
+      slotKeys.add(getWeekSlotKey(challenge.start_date, proof.proof_date));
+    } else {
+      slotKeys.add(proof.proof_date);
+    }
+  }
+
+  return slotKeys.size;
+}
+
+function expectedSlotsUntil(challenge: ChallengeRow, pastDueEnd: string): number {
+  if (pastDueEnd < challenge.start_date) return 0;
+  const elapsedDays = dateDiffInDays(challenge.start_date, pastDueEnd) + 1;
+  if (challenge.frequency === 'weekly') {
+    return Math.floor((elapsedDays - 1) / 7) + 1;
+  }
+  return elapsedDays;
+}
+
 function getProgress(
   challenge: ChallengeRow,
   proofs: ProofRow[],
@@ -48,30 +86,14 @@ function getProgress(
   failedDays: number;
   finalStatus: Extract<ChallengeStatus, 'completed_success' | 'completed_fail'> | null;
 } {
-  const verifiedDates = new Set(
-    proofs
-      .filter((proof) => proof.is_verified)
-      .map((proof) => proof.proof_date)
-      .filter((date) => date >= challenge.start_date && date <= challenge.end_date),
-  );
-
-  const completedDays = verifiedDates.size;
+  const completedDays = countVerifiedSlots(challenge, proofs);
 
   let failedDays = 0;
   const pastDueEnd = challenge.end_date < yesterdayStr ? challenge.end_date : yesterdayStr;
 
-  if (pastDueEnd >= challenge.start_date) {
-    const expectedDays = dateDiffInDays(challenge.start_date, pastDueEnd) + 1;
-
-    let verifiedPastDue = 0;
-    verifiedDates.forEach((date) => {
-      if (date <= pastDueEnd) {
-        verifiedPastDue += 1;
-      }
-    });
-
-    failedDays = Math.max(0, expectedDays - verifiedPastDue);
-  }
+  const expectedDays = expectedSlotsUntil(challenge, pastDueEnd);
+  const verifiedPastDue = countVerifiedSlots(challenge, proofs, pastDueEnd);
+  failedDays = Math.max(0, expectedDays - verifiedPastDue);
 
   const hasEnded = todayStr > challenge.end_date;
   const missedRequiredDay = challenge.frequency === 'daily' && failedDays > 0;
@@ -271,4 +293,3 @@ serve(async () => {
     );
   }
 });
-

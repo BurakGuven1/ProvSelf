@@ -26,6 +26,7 @@ import StakeAmount from '@/src/components/StakeAmount';
 import type {
   ChallengeCategory,
   ChallengeDifficulty,
+  ChallengeFrequency,
   ProofClass,
   VerificationPolicy,
   VerificationType,
@@ -39,6 +40,14 @@ const DURATION_OPTIONS = [
   { days: 90, label: '3 Months' },
   { days: 180, label: '6 Months' },
   { days: 365, label: '1 Year' },
+];
+
+const WEEKLY_DURATION_OPTIONS = [
+  { days: 14, label: '2 Weeks' },
+  { days: 28, label: '4 Weeks' },
+  { days: 56, label: '8 Weeks' },
+  { days: 84, label: '12 Weeks' },
+  { days: 168, label: '24 Weeks' },
 ];
 
 // ── Difficulty options ──
@@ -145,6 +154,9 @@ export default function CreateChallengeScreen() {
     templateDescription?: string;
     templateDifficulty?: string;
     templateDuration?: string;
+    templateFrequency?: string;
+    duoBuddyId?: string;
+    duoBuddyUsername?: string;
   }>();
 
   const { createChallenge, loading } = useChallengeStore();
@@ -155,6 +167,9 @@ export default function CreateChallengeScreen() {
   const [description, setDescription] = useState(params.templateDescription || '');
   const [category, setCategory] = useState<ChallengeCategory>(
     (params.templateCategory as ChallengeCategory) || 'fitness'
+  );
+  const [frequency, setFrequency] = useState<ChallengeFrequency>(
+    (params.templateFrequency as ChallengeFrequency) || 'daily'
   );
   const [duration, setDuration] = useState(
     params.templateDuration ? parseInt(params.templateDuration, 10) : 30
@@ -167,6 +182,8 @@ export default function CreateChallengeScreen() {
   );
   const [healthMetric, setHealthMetric] = useState(params.templateMetric || 'steps');
   const [healthTarget, setHealthTarget] = useState(params.templateTarget || '10000');
+  const duoBuddyId = typeof params.duoBuddyId === 'string' ? params.duoBuddyId : '';
+  const duoBuddyUsername = typeof params.duoBuddyUsername === 'string' ? params.duoBuddyUsername : '';
   const hydrationChallenge = isHydrationChallenge(title, description);
 
   // Hydration challenges must be HealthKit-based.
@@ -182,6 +199,13 @@ export default function CreateChallengeScreen() {
     });
   }, [hydrationChallenge]);
 
+  useEffect(() => {
+    const options = frequency === 'weekly' ? WEEKLY_DURATION_OPTIONS : DURATION_OPTIONS;
+    if (!options.some((opt) => opt.days === duration)) {
+      setDuration(options[0].days);
+    }
+  }, [frequency, duration]);
+
   // ── Classifier state ──
   // `classifier` is the current state; `classifierRequestId` is a monotonic
   // counter so stale in-flight responses (from a previous title) get
@@ -195,6 +219,14 @@ export default function CreateChallengeScreen() {
     () => calculateStake(duration, difficulty),
     [duration, difficulty]
   );
+  const requiredCompletions = useMemo(
+    () => (frequency === 'weekly' ? Math.max(1, Math.ceil(duration / 7)) : duration),
+    [duration, frequency],
+  );
+  const durationLabel = useMemo(() => {
+    const pool = frequency === 'weekly' ? WEEKLY_DURATION_OPTIONS : DURATION_OPTIONS;
+    return pool.find((item) => item.days === duration)?.label ?? `${duration}`;
+  }, [duration, frequency]);
 
   const currentBalance = balance?.balance_cents ?? 0;
   const insufficientBalance = currentBalance < stakeCents;
@@ -326,14 +358,15 @@ export default function CreateChallengeScreen() {
     try {
       await deductStake(stakeCents);
 
+      let createdChallenge: Awaited<ReturnType<typeof createChallenge>> | null = null;
       try {
-        await createChallenge({
+        createdChallenge = await createChallenge({
           title: title.trim(),
           description: description.trim() || null,
           category,
-          frequency: 'daily',
+          frequency,
           duration_days: duration,
-          required_completions: duration,
+          required_completions: requiredCompletions,
           start_date: format(startDate, 'yyyy-MM-dd'),
           end_date: format(endDate, 'yyyy-MM-dd'),
           stake_cents: stakeCents,
@@ -350,13 +383,66 @@ export default function CreateChallengeScreen() {
           status: 'active',
           completed_days: 0,
           failed_days: 0,
+          challenge_mode: duoBuddyId ? 'duo' : 'solo',
+          accountability_partner_id: duoBuddyId || null,
+          duo_link_id: null,
         });
+
+        if (duoBuddyId && createdChallenge) {
+          const { error: duoRequestError } = await supabase
+            .from('duo_challenge_requests')
+            .insert({
+              inviter_id: createdChallenge.user_id,
+              invitee_id: duoBuddyId,
+              inviter_challenge_id: createdChallenge.id,
+              title: createdChallenge.title,
+              description: createdChallenge.description,
+              category: createdChallenge.category,
+              frequency: createdChallenge.frequency,
+              duration_days: createdChallenge.duration_days,
+              required_completions: createdChallenge.required_completions,
+              start_date: createdChallenge.start_date,
+              end_date: createdChallenge.end_date,
+              stake_cents: createdChallenge.stake_cents,
+              verification_type: createdChallenge.verification_type,
+              verification_config: createdChallenge.verification_config,
+              proof_class: createdChallenge.proof_class,
+              verification_policy: createdChallenge.verification_policy,
+              status: 'pending',
+            });
+
+          if (duoRequestError) {
+            await supabase
+              .from('challenges')
+              .update({
+                challenge_mode: 'solo',
+                accountability_partner_id: null,
+                duo_link_id: null,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', createdChallenge.id);
+            Alert.alert(
+              'Duo invite could not be created',
+              'Your challenge was created as solo. You can try inviting your buddy again from Team Up.',
+            );
+          }
+        }
       } catch (createErr) {
-        await returnStake(stakeCents);
+        if (!createdChallenge) {
+          await returnStake(stakeCents);
+        }
         throw createErr;
       }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (duoBuddyId) {
+        Alert.alert(
+          'Duo invite sent',
+          duoBuddyUsername
+            ? `Challenge invite sent to @${duoBuddyUsername}.`
+            : 'Challenge invite sent to your buddy.',
+        );
+      }
       router.replace('/(tabs)');
     } catch {
       Alert.alert(t('common.error'), t('common.retry'));
@@ -444,37 +530,78 @@ export default function CreateChallengeScreen() {
   );
 
   // ── Step 1: Duration ──
-  const renderStep1 = () => (
-    <View style={styles.stepContent}>
-      <Text style={styles.stepTitle}>{t('challenge.how_long')}</Text>
-      <View style={styles.durationGrid}>
-        {DURATION_OPTIONS.map((d) => (
+  const renderStep1 = () => {
+    const durationOptions = frequency === 'weekly' ? WEEKLY_DURATION_OPTIONS : DURATION_OPTIONS;
+
+    return (
+      <View style={styles.stepContent}>
+        <Text style={styles.stepTitle}>{t('challenge.how_long')}</Text>
+        <Text style={styles.fieldLabel}>Cadence</Text>
+        <View style={styles.optionRow}>
           <TouchableOpacity
-            key={d.days}
-            style={[styles.durationOption, duration === d.days && styles.optionSelected]}
-            onPress={() => setDuration(d.days)}
+            style={[styles.categoryOption, frequency === 'daily' && styles.optionSelected]}
+            onPress={() => setFrequency('daily')}
           >
-            <Text
-              style={[
-                styles.durationValue,
-                duration === d.days && styles.optionLabelSelected,
-              ]}
-            >
-              {d.days}
-            </Text>
-            <Text
-              style={[
-                styles.durationLabel,
-                duration === d.days && styles.optionLabelSelected,
-              ]}
-            >
-              {d.label}
+            <Ionicons
+              name="today"
+              size={18}
+              color={frequency === 'daily' ? colors.white : colors.textPrimary}
+            />
+            <Text style={[styles.optionLabel, frequency === 'daily' && styles.optionLabelSelected]}>
+              Daily
             </Text>
           </TouchableOpacity>
-        ))}
+          <TouchableOpacity
+            style={[styles.categoryOption, frequency === 'weekly' && styles.optionSelected]}
+            onPress={() => setFrequency('weekly')}
+          >
+            <Ionicons
+              name="calendar"
+              size={18}
+              color={frequency === 'weekly' ? colors.white : colors.textPrimary}
+            />
+            <Text style={[styles.optionLabel, frequency === 'weekly' && styles.optionLabelSelected]}>
+              Weekly
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.durationGrid}>
+          {durationOptions.map((d) => (
+            <TouchableOpacity
+              key={d.days}
+              style={[styles.durationOption, duration === d.days && styles.optionSelected]}
+              onPress={() => setDuration(d.days)}
+            >
+              <Text
+                style={[
+                  styles.durationValue,
+                  duration === d.days && styles.optionLabelSelected,
+                ]}
+              >
+                {d.days}
+              </Text>
+              <Text
+                style={[
+                  styles.durationLabel,
+                  duration === d.days && styles.optionLabelSelected,
+                ]}
+              >
+                {d.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <View style={styles.frequencyHint}>
+          <Text style={styles.frequencyHintText}>
+            {frequency === 'weekly'
+              ? `Goal: ${requiredCompletions} weekly check-ins`
+              : `Goal: ${requiredCompletions} daily check-ins`}
+          </Text>
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   // ── Step 2: Difficulty ──
   const renderStep2 = () => (
@@ -523,7 +650,7 @@ export default function CreateChallengeScreen() {
       <View style={styles.stakePreview}>
         <Text style={styles.stakePreviewText}>
           {t('challenge.stake_summary_format', {
-            duration: DURATION_OPTIONS.find((d) => d.days === duration)?.label ?? `${duration} ${t('challenge.duration').toLowerCase()}`,
+            duration: durationLabel,
             difficulty: t(`challenge.difficulty_${difficulty}`),
             tokens: stakeCents,
           })}
@@ -734,7 +861,7 @@ export default function CreateChallengeScreen() {
         <View style={styles.stakeBreakdown}>
           <Text style={styles.stakeBreakdownText}>
             {t('challenge.stake_breakdown', {
-              duration: DURATION_OPTIONS.find((d) => d.days === duration)?.label ?? `${duration}`,
+              duration: durationLabel,
               difficulty: t(`challenge.difficulty_${difficulty}`),
             })}
           </Text>
@@ -766,8 +893,12 @@ export default function CreateChallengeScreen() {
         <View style={styles.summaryRow}>
           <Text style={styles.summaryLabel}>{t('challenge.summary_duration')}</Text>
           <Text style={styles.summaryValue}>
-            {DURATION_OPTIONS.find((d) => d.days === duration)?.label ?? `${duration}`}
+            {durationLabel}
           </Text>
+        </View>
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>Cadence</Text>
+          <Text style={styles.summaryValue}>{frequency === 'weekly' ? 'Weekly' : 'Daily'}</Text>
         </View>
         <View style={styles.summaryRow}>
           <Text style={styles.summaryLabel}>{t('challenge.summary_difficulty')}</Text>
@@ -952,6 +1083,18 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: spacing.xs,
     textAlign: 'center',
+  },
+  frequencyHint: {
+    marginTop: spacing.md,
+    backgroundColor: colors.backgroundSecondary,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  frequencyHintText: {
+    ...typography.footnote,
+    color: colors.textSecondary,
+    fontWeight: '600',
   },
   // ── Difficulty styles ──
   difficultyGrid: {

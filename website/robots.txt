@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://provself.app/sitemap.xml
+

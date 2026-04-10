@@ -44,6 +44,7 @@ export type ChallengeCategory = 'fitness' | 'health' | 'productivity' | 'mindful
 export type ChallengeDifficulty = 'easy' | 'medium' | 'hard';
 export type ChallengeFrequency = 'daily' | 'weekly';
 export type ChallengeStatus = 'active' | 'completed_success' | 'completed_fail' | 'cancelled';
+export type ChallengeMode = 'solo' | 'duo';
 export type VerificationType = 'healthkit' | 'photo_ai' | 'buddy_verify';
 
 // Phase 1.5: proof classification.
@@ -93,11 +94,38 @@ export interface Challenge {
   // Sum of per-day no-proof penalties applied during the challenge.
   // Kept nullable/optional for compatibility with legacy rows.
   manual_override_penalty_cents?: number | null;
+  challenge_mode?: ChallengeMode;
+  accountability_partner_id?: string | null;
+  duo_link_id?: string | null;
   status: ChallengeStatus;
   completed_days: number;
   failed_days: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface DuoChallengeRequest {
+  id: string;
+  inviter_id: string;
+  invitee_id: string;
+  inviter_challenge_id: string;
+  invitee_challenge_id: string | null;
+  title: string;
+  description: string | null;
+  category: ChallengeCategory;
+  frequency: ChallengeFrequency;
+  duration_days: number;
+  required_completions: number;
+  start_date: string;
+  end_date: string;
+  stake_cents: number;
+  verification_type: VerificationType;
+  verification_config: VerificationConfig | null;
+  proof_class: ProofClass | null;
+  verification_policy: VerificationPolicy | null;
+  status: 'pending' | 'accepted' | 'declined' | 'cancelled';
+  created_at: string;
+  responded_at: string | null;
 }
 
 export interface DailyProof {

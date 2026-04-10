@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import { differenceInCalendarDays, format, parseISO, subDays } from 'date-fns';
 import { supabase } from '@/src/lib/supabase';
+import { computeChallengeProgress } from '@/src/lib/challenge-progress';
 import type {
   Challenge,
   ChallengeCategory,
@@ -47,6 +47,9 @@ interface CreateChallengeInput {
   // that might skip classification (e.g. seed scripts).
   proof_class: ProofClass | null;
   verification_policy: VerificationPolicy | null;
+  challenge_mode?: 'solo' | 'duo';
+  accountability_partner_id?: string | null;
+  duo_link_id?: string | null;
   status: 'active';
   completed_days: number;
   failed_days: number;
@@ -92,56 +95,8 @@ function isMissingProofColumnsError(err: unknown): boolean {
   return mentionsProofColumns && missingColumnHint;
 }
 
-function getChallengeProgress(
-  challenge: Challenge,
-  proofs: DailyProofSnapshot[],
-): {
-  completedDays: number;
-  failedDays: number;
-  finalStatus: FinalChallengeStatus | null;
-} {
-  const today = new Date();
-  const todayStr = format(today, 'yyyy-MM-dd');
-  const yesterdayStr = format(subDays(today, 1), 'yyyy-MM-dd');
-
-  const verifiedDates = new Set(
-    proofs
-      .filter((p) => p.is_verified)
-      .map((p) => p.proof_date)
-      .filter((date) => date >= challenge.start_date && date <= challenge.end_date),
-  );
-
-  const completedDays = verifiedDates.size;
-
-  let failedDays = 0;
-  const pastDueEnd = challenge.end_date < yesterdayStr ? challenge.end_date : yesterdayStr;
-
-  if (pastDueEnd >= challenge.start_date) {
-    const expectedDays = differenceInCalendarDays(
-      parseISO(pastDueEnd),
-      parseISO(challenge.start_date),
-    ) + 1;
-
-    let verifiedPastDue = 0;
-    verifiedDates.forEach((date) => {
-      if (date <= pastDueEnd) {
-        verifiedPastDue += 1;
-      }
-    });
-    failedDays = Math.max(0, expectedDays - verifiedPastDue);
-  }
-
-  const hasEnded = todayStr > challenge.end_date;
-  const missedRequiredDay = challenge.frequency === 'daily' && failedDays > 0;
-
-  let finalStatus: FinalChallengeStatus | null = null;
-  if (missedRequiredDay || (hasEnded && completedDays < challenge.required_completions)) {
-    finalStatus = 'completed_fail';
-  } else if (hasEnded && completedDays >= challenge.required_completions) {
-    finalStatus = 'completed_success';
-  }
-
-  return { completedDays, failedDays, finalStatus };
+function getChallengeProgress(challenge: Challenge, proofs: DailyProofSnapshot[]) {
+  return computeChallengeProgress(challenge, proofs);
 }
 
 async function getStakeBalanceForUser(userId: string): Promise<StakeSettlementSnapshot> {

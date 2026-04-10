@@ -26,6 +26,7 @@ interface ChallengeTemplate {
   description: string;
   difficulty: ChallengeDifficulty;
   defaultDuration: number; // days
+  frequency?: 'daily' | 'weekly';
   suggestedStake: number; // tokens
 }
 
@@ -232,7 +233,7 @@ const TEMPLATES: ChallengeTemplate[] = [
     description: 'Walk 10,000 steps daily for 3 full months.',
     difficulty: 'medium',
     defaultDuration: 90,
-    suggestedStake: calcStake(90, 'medium'), // 3000
+    suggestedStake: calcStake(84, 'medium'),
   },
   {
     id: 'm8',
@@ -241,7 +242,8 @@ const TEMPLATES: ChallengeTemplate[] = [
     icon: 'fitness',
     description: 'Go to the gym at least 3 times per week.',
     difficulty: 'medium',
-    defaultDuration: 90,
+    defaultDuration: 84,
+    frequency: 'weekly',
     suggestedStake: calcStake(90, 'medium'), // 3000
   },
 
@@ -347,8 +349,9 @@ const TEMPLATES: ChallengeTemplate[] = [
     icon: 'ban',
     description: 'Commit to zero alcohol for 6 months.',
     difficulty: 'hard',
-    defaultDuration: 180,
-    suggestedStake: calcStake(180, 'hard'), // 12000
+    defaultDuration: 168,
+    frequency: 'weekly',
+    suggestedStake: calcStake(168, 'hard'),
   },
 ];
 
@@ -414,6 +417,7 @@ export default function ExploreScreen() {
         templateDescription: template.description,
         templateDifficulty: template.difficulty,
         templateDuration: template.defaultDuration.toString(),
+        templateFrequency: template.frequency ?? 'daily',
       },
     });
   };

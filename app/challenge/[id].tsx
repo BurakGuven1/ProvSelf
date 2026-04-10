@@ -14,7 +14,9 @@ import { useTranslation } from 'react-i18next';
 import { format, differenceInCalendarDays, eachDayOfInterval, parseISO, isSameDay, isAfter } from 'date-fns';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, typography, spacing, borderRadius } from '@/src/constants/theme';
+import { countVerifiedCompletions, getCompletionSlotKey } from '@/src/lib/challenge-progress';
 import { useChallengeStore } from '@/src/stores/challenge-store';
+import { useAuthStore } from '@/src/stores/auth-store';
 import { getHydrationHealthConfig, getNoProofDayPenalty, isHydrationChallenge } from '@/src/lib/challenge-rules';
 import { supabase } from '@/src/lib/supabase';
 import ProgressBar from '@/src/components/ProgressBar';
@@ -22,12 +24,14 @@ import Card from '@/src/components/Card';
 import Button from '@/src/components/Button';
 import StakeAmount from '@/src/components/StakeAmount';
 import Badge from '@/src/components/Badge';
+import TokenPenaltyBanner from '@/src/components/TokenPenaltyBanner';
 import type { Challenge, DailyProof } from '@/src/types/database';
 
 export default function ChallengeDetailScreen() {
   const router = useRouter();
   const { t } = useTranslation();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { session } = useAuthStore();
   const { fetchChallengeById, updateChallenge } = useChallengeStore();
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [proofs, setProofs] = useState<DailyProof[]>([]);
@@ -120,6 +124,20 @@ export default function ChallengeDetailScreen() {
     if (existingToday?.is_verified) {
       return;
     }
+    if (challenge.frequency === 'weekly') {
+      const todaySlot = getCompletionSlotKey(challenge.frequency, challenge.start_date, todayStr);
+      const hasWeekProof = proofs.some((proof) => {
+        if (!proof.is_verified) return false;
+        return getCompletionSlotKey(challenge.frequency, challenge.start_date, proof.proof_date) === todaySlot;
+      });
+      if (hasWeekProof) {
+        Alert.alert(
+          'Already verified this week',
+          'Weekly challenges accept one verification per week.',
+        );
+        return;
+      }
+    }
 
     const basePenalty = getNoProofDayPenalty(challenge.stake_cents, challenge.duration_days);
     const currentPenalty = challenge.manual_override_penalty_cents ?? 0;
@@ -172,15 +190,15 @@ export default function ChallengeDetailScreen() {
               // daily_proofs count instead of incrementing the local
               // snapshot. Avoids double-counting if the same approval is
               // performed twice (multi-device, retry).
-              const { count: verifiedCount, error: countError } = await supabase
+              const { data: verifiedRows, error: countError } = await supabase
                 .from('daily_proofs')
-                .select('id', { count: 'exact', head: true })
+                .select('proof_date, is_verified')
                 .eq('challenge_id', challenge.id)
                 .eq('is_verified', true);
               const fallbackCompleted = challenge.completed_days + (existingToday?.is_verified ? 0 : 1);
               const nextCompletedDays =
-                !countError && typeof verifiedCount === 'number'
-                  ? verifiedCount
+                !countError && verifiedRows
+                  ? countVerifiedCompletions(challenge, verifiedRows)
                   : fallbackCompleted;
 
               const { error: challengeError } = await supabase
@@ -242,6 +260,7 @@ export default function ChallengeDetailScreen() {
     ? challenge.completed_days / challenge.required_completions
     : 0;
   const isActive = challenge.status === 'active';
+  const isOwner = session?.user?.id === challenge.user_id;
   const today = new Date();
   const todayStr = format(today, 'yyyy-MM-dd');
   const verifiedToday = proofs.some((p) => p.proof_date === todayStr && p.is_verified);
@@ -293,6 +312,8 @@ export default function ChallengeDetailScreen() {
             <Badge label={`${challenge.duration_days}d`} variant="default" />
           </View>
         </View>
+
+        <TokenPenaltyBanner compact />
 
         {/* Progress Card */}
         <Card variant="elevated" style={styles.progressCard}>
@@ -389,7 +410,7 @@ export default function ChallengeDetailScreen() {
         </View>
 
         {/* Verification method can be changed even while challenge is active */}
-        {isActive && (
+        {isActive && isOwner && (
           <>
             <Text style={styles.sectionTitle}>
               {t('verification.change_method_title', { defaultValue: 'Verification Method' })}
@@ -463,7 +484,7 @@ export default function ChallengeDetailScreen() {
         )}
 
         {/* Verify Button */}
-        {isActive && !verifiedToday && (
+        {isActive && isOwner && !verifiedToday && (
           <View style={styles.verifySection}>
             <Button
               title={t('verification.submit_proof')}
@@ -493,10 +514,19 @@ export default function ChallengeDetailScreen() {
           </View>
         )}
 
-        {isActive && verifiedToday && (
+        {isActive && isOwner && verifiedToday && (
           <Card style={styles.verifiedCard}>
             <Ionicons name="checkmark-circle" size={24} color={colors.success} />
             <Text style={styles.verifiedText}>{t('home.verified_today')}</Text>
+          </Card>
+        )}
+
+        {isActive && !isOwner && (
+          <Card style={styles.watchOnlyCard}>
+            <Ionicons name="eye-outline" size={20} color={colors.accent} />
+            <Text style={styles.watchOnlyText}>
+              Partner progress view only. Verification actions are available to the challenge owner.
+            </Text>
           </Card>
         )}
       </ScrollView>
@@ -681,5 +711,18 @@ const styles = StyleSheet.create({
     ...typography.headline,
     color: colors.success,
     marginLeft: spacing.sm,
+  },
+  watchOnlyCard: {
+    marginTop: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: '#E8F1FF',
+  },
+  watchOnlyText: {
+    ...typography.footnote,
+    color: colors.textPrimary,
+    flex: 1,
+    lineHeight: 18,
   },
 });

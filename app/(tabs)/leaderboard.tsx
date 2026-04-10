@@ -257,17 +257,25 @@ export default function LeaderboardScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.title}>{t('leaderboard.title')}</Text>
-        <TouchableOpacity
-          style={styles.headerRequestBtn}
-          onPress={() => router.push('/buddy/requests')}
-        >
-          <Ionicons name="mail-unread-outline" size={20} color={colors.textPrimary} />
-          {pendingRequestCount > 0 && (
-            <View style={styles.headerRequestBadge}>
-              <Text style={styles.headerRequestBadgeText}>{pendingRequestCount > 9 ? '9+' : pendingRequestCount}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.headerRequestBtn}
+            onPress={() => router.push('/buddy/team-up')}
+          >
+            <Ionicons name="people-outline" size={20} color={colors.textPrimary} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerRequestBtn}
+            onPress={() => router.push('/buddy/requests')}
+          >
+            <Ionicons name="mail-unread-outline" size={20} color={colors.textPrimary} />
+            {pendingRequestCount > 0 && (
+              <View style={styles.headerRequestBadge}>
+                <Text style={styles.headerRequestBadgeText}>{pendingRequestCount > 9 ? '9+' : pendingRequestCount}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.tabs}>
@@ -300,6 +308,13 @@ export default function LeaderboardScreen() {
               <Text style={styles.requestsButtonText}>
                 Pending requests{pendingRequestCount > 0 ? ` (${pendingRequestCount})` : ''}
               </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.requestsButton}
+              onPress={() => router.push('/buddy/team-up')}
+            >
+              <Ionicons name="people-outline" size={16} color={colors.accent} />
+              <Text style={styles.requestsButtonText}>Team up screen</Text>
             </TouchableOpacity>
           </View>
           <Text style={styles.inviteLabel}>Add friend by username</Text>
@@ -380,6 +395,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: colors.backgroundSecondary,
   },
+  headerActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
   headerRequestBadge: {
     position: 'absolute',
     top: -4,
@@ -440,6 +459,8 @@ const styles = StyleSheet.create({
   },
   requestsRow: {
     marginBottom: spacing.sm,
+    flexDirection: 'row',
+    gap: spacing.sm,
   },
   requestsButton: {
     flexDirection: 'row',

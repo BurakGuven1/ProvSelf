@@ -312,6 +312,14 @@ export default function ProfileScreen() {
           <View style={styles.quickLinksRow}>
             <TouchableOpacity
               style={styles.quickLinkBtn}
+              onPress={() => router.push('/buddy/team-up')}
+            >
+              <Ionicons name="people-outline" size={15} color={colors.accent} />
+              <Text style={styles.quickLinkText}>Team Up</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.quickLinkBtn}
               onPress={() => router.push('/buddy/requests')}
             >
               <Ionicons name="mail-unread-outline" size={15} color={colors.accent} />
@@ -549,6 +557,7 @@ const styles = StyleSheet.create({
   quickLinksRow: {
     marginTop: spacing.sm,
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
   },
   quickLinkBtn: {

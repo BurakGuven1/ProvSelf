@@ -8,6 +8,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, typography, spacing, borderRadius } from '@/src/constants/theme';
+import { countVerifiedCompletions, getCompletionSlotKey } from '@/src/lib/challenge-progress';
 import { isAbstinenceChallenge } from '@/src/lib/challenge-rules';
 import { supabase } from '@/src/lib/supabase';
 import { useAuthStore } from '@/src/stores/auth-store';
@@ -89,6 +90,26 @@ export default function PhotoVerifyScreen() {
     try {
       const challenge = await fetchChallengeById(challengeId);
       if (!challenge) throw new Error('Challenge not found');
+
+      if (challenge.frequency === 'weekly') {
+        const todayStr = format(new Date(), 'yyyy-MM-dd');
+        const todaySlot = getCompletionSlotKey(challenge.frequency, challenge.start_date, todayStr);
+        const { data: weeklyRows, error: weeklyError } = await supabase
+          .from('daily_proofs')
+          .select('proof_date, is_verified')
+          .eq('challenge_id', challenge.id)
+          .eq('is_verified', true);
+        if (weeklyError) throw weeklyError;
+
+        const alreadySubmitted = (weeklyRows ?? []).some((row) =>
+          getCompletionSlotKey(challenge.frequency, challenge.start_date, row.proof_date) === todaySlot,
+        );
+        if (alreadySubmitted) {
+          Alert.alert('Already verified this week', 'Weekly challenges accept one verification per week.');
+          setVerifying(false);
+          return;
+        }
+      }
 
       // Client-side fast path: if the challenge's stored policy hard-
       // blocks photo verification, fail immediately without hitting the
@@ -204,22 +225,20 @@ export default function PhotoVerifyScreen() {
       }
 
       if (verified) {
-        // Race-safe recompute: derive completed_days from the set of
-        // verified daily_proofs rows for this challenge instead of doing
-        // a `+ 1` increment off a possibly-stale local snapshot. Two
-        // concurrent verifications (multi-device, retry, etc.) would
-        // otherwise double-count.
-        const { count: verifiedCount, error: countError } = await supabase
+        // Race-safe recompute: derive completed_days from verified proof
+        // slots (day for daily challenges, week buckets for weekly ones).
+        const { data: verifiedRows, error: countError } = await supabase
           .from('daily_proofs')
-          .select('id', { count: 'exact', head: true })
+          .select('proof_date, is_verified')
           .eq('challenge_id', challenge.id)
           .eq('is_verified', true);
 
-        if (!countError && typeof verifiedCount === 'number') {
+        if (!countError && verifiedRows) {
+          const completedUnits = countVerifiedCompletions(challenge, verifiedRows);
           await supabase
             .from('challenges')
             .update({
-              completed_days: verifiedCount,
+              completed_days: completedUnits,
               updated_at: new Date().toISOString(),
             })
             .eq('id', challenge.id);

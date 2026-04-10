@@ -13,6 +13,7 @@ export const colors = {
 
   card: '#FFFFFF',
   cardBorder: '#E5E5EA',
+  border: '#D1D1D6',
 
   stakeGold: '#FFD60A',
   stakeGoldDark: '#B8860B',

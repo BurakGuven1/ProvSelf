@@ -24,6 +24,7 @@ import ProgressBar from '@/src/components/ProgressBar';
 import Button from '@/src/components/Button';
 import EmptyState from '@/src/components/EmptyState';
 import StakeAmount from '@/src/components/StakeAmount';
+import TokenPenaltyBanner from '@/src/components/TokenPenaltyBanner';
 import type { Challenge } from '@/src/types/database';
 
 function getGreeting(name: string, t: (key: string, opts?: Record<string, unknown>) => string) {
@@ -45,6 +46,13 @@ function ChallengeCard({ challenge }: { challenge: Challenge }) {
   const progress = challenge.required_completions > 0
     ? challenge.completed_days / challenge.required_completions
     : 0;
+  const cadenceMeta =
+    challenge.frequency === 'weekly'
+      ? `${challenge.completed_days}/${challenge.required_completions} weeks done`
+      : t('challenge.day_x_of_y', {
+          current: challenge.completed_days + challenge.failed_days,
+          total: challenge.duration_days,
+        });
 
   return (
     <Card
@@ -58,10 +66,7 @@ function ChallengeCard({ challenge }: { challenge: Challenge }) {
             {challenge.title}
           </Text>
           <Text style={styles.challengeMeta}>
-            {t('challenge.day_x_of_y', {
-              current: challenge.completed_days + challenge.failed_days,
-              total: challenge.duration_days,
-            })}
+            {cadenceMeta}
             {' · '}
             {t('home.days_left', { count: daysLeft })}
           </Text>
@@ -149,6 +154,19 @@ export default function HomeScreen() {
         </Card>
       )}
 
+      <TokenPenaltyBanner compact />
+
+      <View style={styles.quickActionRow}>
+        <TouchableOpacity style={styles.quickActionBtn} onPress={() => router.push('/(tabs)/habits')}>
+          <Ionicons name="checkmark-done-circle" size={18} color={colors.accent} />
+          <Text style={styles.quickActionText}>Track Progress</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.quickActionBtn} onPress={() => router.push('/buddy/team-up')}>
+          <Ionicons name="people" size={18} color={colors.accent} />
+          <Text style={styles.quickActionText}>Team Up</Text>
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>{t('home.active_challenges')}</Text>
         <TouchableOpacity onPress={() => router.push('/challenge/create')}>
@@ -235,6 +253,30 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: 2,
   },
+  quickActionRow: {
+    marginBottom: spacing.lg,
+    marginTop: spacing.sm,
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  quickActionBtn: {
+    flex: 1,
+    borderRadius: borderRadius.md,
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.backgroundSecondary,
+    borderWidth: 1,
+    borderColor: colors.backgroundTertiary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+  },
+  quickActionText: {
+    ...typography.footnote,
+    color: colors.textPrimary,
+    fontWeight: '700',
+  },
   coachRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -298,3 +340,4 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
 });
+

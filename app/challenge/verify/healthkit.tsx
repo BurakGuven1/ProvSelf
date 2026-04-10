@@ -7,6 +7,7 @@ import { format } from 'date-fns';
 import * as Haptics from 'expo-haptics';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, typography, spacing, borderRadius } from '@/src/constants/theme';
+import { countVerifiedCompletions, getCompletionSlotKey } from '@/src/lib/challenge-progress';
 import { supabase } from '@/src/lib/supabase';
 import { initHealthKit, getMetricValue } from '@/src/lib/healthkit';
 import { useAuthStore } from '@/src/stores/auth-store';
@@ -67,28 +68,57 @@ export default function HealthKitVerifyScreen() {
 
     setSubmitting(true);
     try {
-      const { error } = await supabase.from('daily_proofs').insert({
-        challenge_id: challenge.id,
-        user_id: session.user.id,
-        proof_date: format(new Date(), 'yyyy-MM-dd'),
-        verification_type: 'healthkit',
-        proof_data: { [config?.metric ?? 'value']: healthValue },
-        is_verified: isVerified,
-      });
+      if (challenge.frequency === 'weekly') {
+        const todayStr = format(new Date(), 'yyyy-MM-dd');
+        const todaySlot = getCompletionSlotKey(challenge.frequency, challenge.start_date, todayStr);
+        const { data: weeklyRows, error: weeklyError } = await supabase
+          .from('daily_proofs')
+          .select('proof_date, is_verified')
+          .eq('challenge_id', challenge.id)
+          .eq('is_verified', true);
+        if (weeklyError) throw weeklyError;
+        const alreadySubmitted = (weeklyRows ?? []).some((row) =>
+          getCompletionSlotKey(challenge.frequency, challenge.start_date, row.proof_date) === todaySlot,
+        );
+        if (alreadySubmitted) {
+          Alert.alert('Already verified this week', 'Weekly challenges accept one verification per week.');
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      const { error } = await supabase.from('daily_proofs').upsert(
+        {
+          challenge_id: challenge.id,
+          user_id: session.user.id,
+          proof_date: format(new Date(), 'yyyy-MM-dd'),
+          verification_type: 'healthkit',
+          proof_data: { [config?.metric ?? 'value']: healthValue },
+          is_verified: isVerified,
+        },
+        { onConflict: 'challenge_id,proof_date' },
+      );
 
       if (error) throw error;
 
       if (isVerified) {
+        const { data: verifiedRows, error: readError } = await supabase
+          .from('daily_proofs')
+          .select('proof_date, is_verified')
+          .eq('challenge_id', challenge.id)
+          .eq('is_verified', true);
+        if (readError) throw readError;
+
+        const completedUnits = countVerifiedCompletions(challenge, verifiedRows ?? []);
         await supabase
           .from('challenges')
-          .update({ completed_days: challenge.completed_days + 1 })
+          .update({
+            completed_days: completedUnits,
+            updated_at: new Date().toISOString(),
+          })
           .eq('id', challenge.id);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } else {
-        await supabase
-          .from('challenges')
-          .update({ failed_days: challenge.failed_days + 1 })
-          .eq('id', challenge.id);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
 

@@ -12,7 +12,7 @@
     "next": "Avanti",
     "back": "Indietro",
     "loading": "Caricamento...",
-    "error": "Qualcosa \u00e8 andato storto",
+    "error": "Qualcosa è andato storto",
     "retry": "Riprova",
     "settings": "Impostazioni"
   },
@@ -33,7 +33,7 @@
     "confirm_password_placeholder": "Reinserisci la password",
     "username": "Nome utente",
     "choose_username": "Scegli un nome utente",
-    "already_have_account": "Hai gi\u00e0 un account?",
+    "already_have_account": "Hai già un account?",
     "dont_have_account": "Non hai un account?",
     "forgot_password": "Password dimenticata?",
     "forgot_password_subtitle": "Inserisci la tua email e ti invieremo un link per reimpostare la password.",
@@ -48,7 +48,7 @@
     "errors": {
       "email_required": "Email obbligatoria",
       "email_invalid": "Inserisci un'email valida",
-      "email_taken": "Email gi\u00e0 registrata",
+      "email_taken": "Email già registrata",
       "password_required": "Password obbligatoria",
       "password_short": "La password deve avere almeno 6 caratteri",
       "confirm_password_required": "Conferma la password",
@@ -57,7 +57,7 @@
       "username_short": "Nome utente minimo 3 caratteri",
       "username_invalid": "Solo lettere, numeri e underscore",
       "invalid_credentials": "Email o password errati",
-      "generic": "Qualcosa \u00e8 andato storto. Riprova."
+      "generic": "Qualcosa è andato storto. Riprova."
     }
   },
   "home": {
@@ -79,10 +79,12 @@
     "popular": "Sfide Popolari",
     "fitness": "Fitness",
     "health": "Salute",
-    "productivity": "Produttivit\u00e0",
+    "productivity": "Produttività",
     "mindfulness": "Mindfulness",
     "custom": "Personalizzato",
-    "search": "Cerca sfide..."
+    "search": "Cerca sfide...",
+    "category": "Categoria",
+    "difficulty": "Difficoltà"
   },
   "challenge": {
     "create_title": "Nuova Sfida",
@@ -111,12 +113,46 @@
     "stake_returned": "I tuoi token sono stati restituiti!",
     "stake_forfeited": "I tuoi token sono stati persi.",
     "day_x_of_y": "Giorno {{current}} di {{total}}",
-    "streak": "{{count}} giorni consecutivi"
+    "streak": "{{count}} giorni consecutivi",
+    "difficulty_question": "Quanto è difficile?",
+    "difficulty_explanation": "Le sfide più dure richiedono più token d'impegno. Più ti spingi, più dimostri.",
+    "difficulty_easy": "Facile",
+    "difficulty_medium": "Medio",
+    "difficulty_hard": "Difficile",
+    "tokens_label": "token",
+    "stake_summary_format": "{{duration}} x {{difficulty}} = {{tokens}} token",
+    "summary_title": "Riepilogo Sfida",
+    "summary_challenge": "Sfida",
+    "summary_duration": "Durata",
+    "summary_difficulty": "Difficoltà",
+    "summary_verification": "Verifica",
+    "summary_at_stake": "In gioco",
+    "verification_apple_health": "Apple Health",
+    "verification_photo_ai": "Foto IA",
+    "title_placeholder": "es. 10.000 passi al giorno",
+    "description_placeholder": "Aggiungi dettagli (opzionale)",
+    "balance_label": "Il tuo saldo:",
+    "balance_tokens": "{{count}} token",
+    "add_funds_short": "+ Aggiungi",
+    "tokens_at_stake_label": "token in gioco",
+    "complete_returns": "Completala: {{tokens}} token restituiti",
+    "give_up_forfeits": "Arrenditi: {{tokens}} token persi",
+    "stake_breakdown": "{{duration}} x difficoltà {{difficulty}}",
+    "title_required": "Inserisci un titolo per la sfida.",
+    "missing_title": "Inserisci ciò che vuoi dimostrare.",
+    "healthkit_desc": "Passi, calorie, esercizio, sonno",
+    "photo_desc": "Fai una foto, l'IA la verifica",
+    "metric_target": "Metrica e obiettivo",
+    "metric_steps": "Passi",
+    "metric_calories": "Calorie",
+    "metric_minutes": "Minuti",
+    "metric_water": "Acqua (ml)",
+    "target_value_placeholder": "Valore obiettivo"
   },
   "stake": {
     "balance": "Saldo Token",
     "buy_credits": "Acquista Token",
-    "buy_credits_description": "I token sostengono le tue sfide. Completale e i token tornano. Pi\u00f9 scommetti, pi\u00f9 sei motivato.",
+    "buy_credits_description": "I token sostengono le tue sfide. Completale e i token tornano. Più scommetti, più sei motivato.",
     "pack_description": "{{amount}} token",
     "stake_back": "Token restituiti!",
     "stake_lost": "Token persi",
@@ -134,7 +170,20 @@
     "waiting_buddy": "In attesa della verifica dell'amico",
     "verifying": "Verifica in corso...",
     "submit_proof": "Invia Prova",
-    "photo_instructions": "Scatta una foto chiara che dimostri il completamento della sfida di oggi."
+    "photo_instructions": "Scatta una foto chiara che dimostri il completamento della sfida di oggi.",
+    "abstinence_photo_instructions": "Per le sfide di astinenza, invia un selfie dal vivo con il viso visibile come check-in giornaliero intenzionale.",
+    "classifying": "Analisi delle regole di verifica...",
+    "classification_failed_title": "Configurazione verifica non disponibile",
+    "classification_failed_message": "Non siamo riusciti ad analizzare questa sfida. Puoi riprovare o continuare.",
+    "classification_fallback_message": "La classificazione automatica è temporaneamente non disponibile. Continueremo con il tuo metodo di verifica selezionato.",
+    "low_proof_blocked_title": "Metodo di verifica bloccato",
+    "low_proof_blocked_message": "Questa sfida richiede un altro metodo di verifica. Scegli l'opzione consigliata.",
+    "photo_method_disabled": "Questo metodo di verifica è disattivato per questa sfida.",
+    "hydration_healthkit_required": "Le sfide di idratazione si verificano solo con Apple Health. La prova fotografica è disattivata.",
+    "change_method_title": "Metodo di Verifica",
+    "no_proof_button": "Approva senza prova",
+    "no_proof_confirm_title": "Approvare senza prova?",
+    "no_proof_confirm_message": "Oggi sarà segnato come completato, ma parte della tua puntata sarà dedotta dal ritorno finale."
   },
   "leaderboard": {
     "title": "Classifica",
@@ -143,7 +192,11 @@
     "your_rank": "La Tua Posizione",
     "rank": "#{{rank}}",
     "wins": "{{count}} vittorie",
-    "streak_label": "serie"
+    "streak_label": "serie",
+    "no_friends_title": "Nessun amico in classifica",
+    "no_friends_message": "Aggiungi e accetta buddies per vedere la classifica degli amici qui.",
+    "no_global_title": "La classifica è vuota",
+    "no_global_message": "Completa sfide per apparire in classifica."
   },
   "profile": {
     "title": "Profilo",
@@ -155,16 +208,29 @@
     "total_staked": "Totale Scommesso",
     "total_saved": "Totale Restituito",
     "current_streak": "Serie Attuale",
-    "longest_streak": "Serie Pi\u00f9 Lunga",
+    "longest_streak": "Serie Più Lunga",
     "level": "Livello {{level}}",
     "xp": "{{xp}} XP",
-    "no_badges": "Nessuna medaglia. Completa le sfide per guadagnarne!"
+    "no_badges": "Nessuna medaglia. Completa le sfide per guadagnarne!",
+    "tokens_lost": "Token persi",
+    "current_challenges": "Sfide attuali",
+    "past_challenges": "Sfide passate",
+    "challenge_active": "In corso",
+    "challenge_won": "Vinta",
+    "challenge_failed": "Persa",
+    "tokens_returned": "restituiti",
+    "tokens_at_stake": "in gioco",
+    "days_done": "giorni fatti",
+    "no_current_challenges_title": "Nessuna sfida attiva",
+    "no_current_challenges_message": "Inizia una nuova sfida per vederla qui.",
+    "no_past_challenges_title": "Ancora nessuna sfida passata",
+    "no_past_challenges_message": "Le sfide completate o fallite appariranno qui."
   },
   "share": {
     "share_achievement": "Condividi Risultato",
     "share_to_instagram": "Condividi su Instagram",
     "share_card_title": "SERIE DI {{days}} GIORNI",
-    "staked_and_saved": "{{staked}} scommesso \u00b7 {{saved}} restituito"
+    "staked_and_saved": "{{staked}} scommesso · {{saved}} restituito"
   },
   "settings": {
     "title": "Impostazioni",
